@@ -10,38 +10,25 @@ output: html_document
 #install.packages("dplyr")
 #if (!require("BiocManager", quietly = TRUE))
 #   install.packages("BiocManager")
-
 #BiocManager::install("GenomicRanges")
-
 #if (!require("BiocManager", quietly = TRUE))
 #   install.packages("BiocManager")
-
 #BiocManager::install("TxDb.Hsapiens.UCSC.hg38.knownGene")
-
 #if (!require("BiocManager", quietly = TRUE))
 #   install.packages("BiocManager")
-
 #BiocManager::install("Homo.sapiens")
-
 #if (!require("BiocManager", quietly = TRUE))
 #   install.packages("BiocManager")
-
 #BiocManager::install("plyranges")
 #install.packages("ellipsis")
-
 #if (!require("BiocManager", quietly = TRUE))
 #   install.packages("BiocManager")
-
 #BiocManager::install("AUCell")
-
 #if (!require("BiocManager", quietly = TRUE))
 #install.packages("BiocManager")
-
 #BiocManager::install("GSEABase")
-
 #if (!require("BiocManager", quietly = TRUE))
 #   install.packages("BiocManager")
-
 #BiocManager::install("GEOquery")
 #install.packages("openxlsx")
 ```
@@ -70,7 +57,7 @@ analysis_directory<-"/media/ag-cherrmann/ischneider/GRNTcellExh/analysis"
 ```
 
 #Edit the input file for the 50 Scenic runs
-```{r}
+```{r eval=FALSE, echo=FALSE}
 input<-read.csv("/media/ag-cherrmann/cramirez/tcd8ExscSeq/data/maike2020/nina_thimme_raw_counts.csv",header=T, row.names=1)
 
 #Remove RNA genes
@@ -87,7 +74,6 @@ input<-as.data.frame(input)
 
 #Bolouri paper nodes with appropriate nomenclature substitutions
 paper_nodes<-c("TNFSF9","TNFRSF9","IL12RB1","IL12RB2","IL21R","FCER1G","CD3","CD8","CD28","PIK3K","EZH2","PRC2","IL2R","RAS","MAPK1","JUN","FOS","BATF","AKT1", "AKT2", "AKT3","FOXO1","EGR2","EGR3","BACH2","ID3","ID2","NFKB1","MTOR","IRF4","TCF3","NFATC2","PPARGC1A","BCL6","PRDM1","NFATC1","CXCR5","TBX21","ZEB2","LAG3","PDCD1","HIF1A","KLRG1","PPARA","CTLA4","HAVCR2","BTLA","NR4A1","CD160","TIGIT","IL15RA","CD244","CD2B4","MYC","RUNX3","EOMES","FAS","FASLG","GZMA","GZMB","PRF1","IFNG")
-
 paper_substitutions<-list("HNF1A","TNFRSF9",c("IL12RB1","IL12RB2"),c("AKT1","AKT2","AKT3"),"TCF3","PRDM1","TBX21","PDCD1","PPARA","TIM3","TNFSF9","FCER1G","MAPK1","PPARGC1A","IL15RA")
 names(paper_substitutions)<-c("TCF1","41BB","IL12R","AKT","E2A","BLIMP1","TBET","PD1","PPAR","TIM3","CD137L","CD3","MAPK","PGC1A","IL15R")
 
@@ -107,15 +93,17 @@ input<-input[,names(input_genes)]
 ```{r eval=FALSE, echo=FALSE}
 setwd("/media/ag-cherrmann/ischneider/GRNTcellExh/data/SCENIC50/Input")
 write.table(input, file='scenic_input_full_genome.tsv', quote=FALSE, sep='\t', row.names = T)
-
 #Code for bash to iterate Scenic 50 times
 #bash /media/ag-cherrmann/ischneider/GRNTcellExh/scr/Scenic.txt
-```
 
-```{r}
 #Save the table
 setwd(analysis_directory)
 write.table(input, file='scenic_input_full_genome.tsv', quote=FALSE, sep='\t', row.names = T)
+```
+
+```{r}
+#Open input table
+input<-read.table(paste0("/media/ag-cherrmann/ischneider/GRNTcellExh/data/SCENIC50/Input","/scenic_input_full_genome.tsv"),sep='\t',header=T)
 ```
 
 #Select all TFs from aucell files
@@ -153,35 +141,28 @@ for (x in seq(n)){
   reg<-read.csv(paste0(data_directory,"/SCENIC50/Output_full_genome/run_",as.character(x),"/reg.csv"),header=T)
   reg_targets[[as.character(x)]]<-reg
 }
-
 change_reg_format<-function(r){
   names<-c(r[2,1:2],r[1,3:dim(r)[2]])
   y<-setNames(r,names)
   y<-y[-c(1,2),]
 }
 reg_targets<-lapply(reg_targets,change_reg_format)
-
 for (x in names(reg_targets)){
   reg_targets[[x]]<-split(reg_targets[[x]],reg_targets[[x]]$TF)
 }
-
 for (x in names(reg_targets)){
   for (y in names(reg_targets[[x]])){
     reg_targets[[x]][[y]]<-reg_targets[[x]][[y]]$TargetGenes
   }
 }
-
 #Extract target names
 extract_targets <- function(x){
   targets <- regmatches(x, gregexpr("'[^']*'", x))[[1]] 
   gsub("'", '', targets)
 }
-
 extract_all_unique_targets<-function(obj){
   unique(extract_targets(paste0(c(obj),collapse = "")))
 }
-
-
 for (x in names(reg_targets)){
   for(y in names(reg_targets[[x]])){
     reg_targets[[x]][[y]]<-extract_all_unique_targets(reg_targets[[x]][[y]])
@@ -189,13 +170,11 @@ for (x in names(reg_targets)){
   }
 }
 regulons<-reg_targets
-
 for (x in names(reg_targets)){
   for(y in names(reg_targets[[x]])){
     reg_targets[[x]][[y]]<-reg_targets[[x]][[y]][reg_targets[[x]][[y]] %in% scenic_output_tfs] #we keep not only TF->TF interactions
   }
 }
-
 #Remove self regulation
 for (y in names(reg_targets)){
   for (x in scenic_output_tfs){
@@ -206,13 +185,11 @@ for (y in names(reg_targets)){
     }
   }
 } 
-
 #Remove TFs with no targets
 for (x in names(reg_targets)){
   remove<-which(lapply(reg_targets[[x]], length)==0)
   reg_targets[[x]]<-reg_targets[[x]][-remove]
 }
-
 reg_tfs<-c()
 for (x in names(reg_targets)){
   reg_tfs<-append(reg_tfs,names(reg_targets[[x]]))
@@ -231,17 +208,13 @@ for (z in names(reg_targets)){
     }
   }
 }
-
 frequency<-(table(all_interactions))
 all_unique_interactions<-names(frequency)
-
 interactions_summary<-as.data.frame(matrix(ncol=3,nrow=length(unlist(all_unique_interactions))))
 colnames(interactions_summary)<-c("TF", "target","frequency")
-
 interactions_summary$frequency<-as.numeric(frequency)
 interactions_summary$TF<-sub("->.*", "", all_unique_interactions)
 interactions_summary$target<-sub(".*->", "", all_unique_interactions)
-
 #Add frequency filter
 frequency_filter=40
 for(x in seq(dim(interactions_summary)[1])){
@@ -275,7 +248,6 @@ for (x in cistrome_blood_file_names){
 #Keep only TFs that appear in scenic output
 names(cistrome_blood_files)<-cistrome_blood$Factor
 cistrome_blood_files<-cistrome_blood_files[names(cistrome_blood_files) %in% scenic_output_tfs]
-
 #Split the list into groups according to a TF
 cistrome_blood_files<-split(cistrome_blood_files,names(cistrome_blood_files))
 cistrome_blood_files<-lapply(cistrome_blood_files, dplyr::bind_rows)
@@ -292,6 +264,19 @@ for (y in names(cistrome_best_peaks)){
 }
 ```
 
+#Export cistrome_best_peaks
+```{r}
+for (x in names(cistrome_best_peaks)){
+  write.csv(x,paste0(analysis_directory,"/","cistrome_best_peaks/",x,".csv"), row.names = FALSE)
+}
+
+```
+
+#Import cistrome_best_peaks
+```{r}
+
+```
+
 #Prepare Cistrome peaks for intersection with reference genome
 ```{r}
 #Change peak format
@@ -300,9 +285,7 @@ change_peak_format<-function(peak){
   new_names<-c("chr","start","end","strand")
   setNames(y,new_names)
 }
-
 cistrome_best_peaks<-lapply(cistrome_best_peaks,change_peak_format)
-
 #Extend the peaks by 10 kb in both directions
 extension=10000
 extend_peaks<-function(peak, e){
@@ -310,7 +293,6 @@ extend_peaks<-function(peak, e){
   peak<-mutate(peak,end=end+e)
 }
 cistrome_extended_peaks<-lapply(cistrome_best_peaks,extend_peaks,e=extension)
-
 for(y in names(cistrome_extended_peaks)){
   for (x in seq_along(cistrome_extended_peaks[[y]]$start)){
     if(cistrome_extended_peaks[[y]]$start[x]<0){
@@ -330,23 +312,18 @@ for (x in names(cistrome_extended_peaks)){
 #Get reference transcripts
 txdb <- TxDb.Hsapiens.UCSC.hg38.knownGene
 transcripts <- GenomicFeatures::genes(txdb)
-
 #Get reference genes
 TxDb(Homo.sapiens) <- txdb
 genes_list <- transcriptsBy(Homo.sapiens, columns = "SYMBOL")
 genes <- unlist(genes_list)
 cistrome_overlap_transcripts<-lapply(cistrome_granges_peaks, GenomicRanges::intersect, y=transcripts, ignore.strand=T)
-
 #Create overlap and obtain gene names
 cistrome_overlap_genes<-lapply(cistrome_overlap_transcripts,plyranges::find_overlaps,y=genes)
 cistrome_overlap_gene_names<-lapply(cistrome_overlap_genes,function(x){unique(unlist(x$SYMBOL))})
-
 total_genes<-unique(unlist(cistrome_overlap_gene_names))
 scenic_cistrome_overlap<-scenic_output_tfs[scenic_output_tfs %in% total_genes]
 paper_nodes[paper_nodes %in% scenic_cistrome_overlap]
-
 cistrome_overlap_gene_names<-lapply(cistrome_overlap_gene_names, function(x){x[x %in% scenic_output_tfs]})
-
 #Add cistrome filter to interactions_summary
 cistrome_confirmed_interactions<-c()
 for (z in names(cistrome_overlap_gene_names)){
@@ -355,7 +332,6 @@ for (z in names(cistrome_overlap_gene_names)){
   }
 }
 our_cistrome_confirmed_interactions<-cistrome_confirmed_interactions[cistrome_confirmed_interactions %in% all_unique_interactions]
-
 interactions_summary["cistrome_filter"]<-F
 interactions_summary[which(all_unique_interactions %in% our_cistrome_confirmed_interactions),"cistrome_filter"]<-T
 ```
@@ -368,12 +344,10 @@ change_peak_format<-function(peak){
   new_names<-c("chr","start","end","strand")
   setNames(y,new_names)
 }
-
 extend_peaks<-function(peak, e){
   peak<-mutate(peak,start=start-e)
   peak<-mutate(peak,end=end+e)
 }
-
 #Output of this loop: Granges object of the extended TF ranges overlap with gene regeions. It contains a metacolumn with gene names which we etract in further loops
 peaks_amount<-c(100,250,500,1000,2500,5000,10000)
 peak_extensions<-c(0,1000,5000,10000,50000,100000)
@@ -413,10 +387,8 @@ for (z in peaks_amount){
   }
   cistrome_best_peaks_options[[as.character(z)]]<-extension_options
 }
-
 #Back up mid results
 save1<-cistrome_best_peaks_options
-
 cistrome_best_peaks_options<-save1
 #Extract metacolumn with gene names
 for (x in names(cistrome_best_peaks_options)){
@@ -424,14 +396,10 @@ for (x in names(cistrome_best_peaks_options)){
     cistrome_best_peaks_options[[x]][[y]]<-lapply(cistrome_best_peaks_options[[x]][[y]],function(h){unique(unlist(h$SYMBOL))})
   }
 }
-
 #Create 3 output lists about nodes
 total_genes_options<-cistrome_best_peaks_options
-
 scenic_cistrome_overlap_options<-cistrome_best_peaks_options
-
 scenic_cistrome_paper_overlap_options<-cistrome_best_peaks_options
-
 for (x in names(cistrome_best_peaks_options)){
   for (y in names(cistrome_best_peaks_options[[x]])){
     total_genes_options[[x]][[y]]<-unique(unlist(cistrome_best_peaks_options[[x]][[y]]))
@@ -439,7 +407,6 @@ for (x in names(cistrome_best_peaks_options)){
     scenic_cistrome_paper_overlap_options[[x]][[y]]<-paper_nodes[paper_nodes %in% scenic_cistrome_overlap_options[[x]][[y]]]
   }
 }
-
 #See how many interactions are confirmed
 for (x in names(cistrome_best_peaks_options)){
   for (y in names(cistrome_best_peaks_options[[x]])){
@@ -453,7 +420,6 @@ for (x in names(cistrome_best_peaks_options)){
     cistrome_best_peaks_options[[x]][[y]]<-cistrome_confirmed_interactions[cistrome_confirmed_interactions %in% all_unique_interactions]
   }
 }
-
 #Summarize everything in one list
 summary_peaks_options<-cistrome_best_peaks_options
 tot_genes<-list()
@@ -462,7 +428,6 @@ scenic_cistrome_paper<-list()
 scenic_cistrome_interactions<-list()
 categories<-list(tot_genes,scenic_cistrome,scenic_cistrome_paper,scenic_cistrome_interactions)
 names(categories)<-c("tot_genes","scenic_cistrome","scenic_cistrome_paper","scenic_cistrome_interactions")
-
 for (x in names(summary_peaks_options)){
   for (y in names(summary_peaks_options[[x]])){
     summary_peaks_options[[x]][[y]]<-categories
@@ -491,8 +456,6 @@ for (x in seq(dim(atac_seq)[1])){
   }
 }
 atac_seq<-atac_seq[keep,]
-
-
 atac_seq_list<-vector("list", dim(atac_seq)[1])
 names(atac_seq_list)<-atac_seq$genes
 for (x in seq(length(atac_seq_list))){
@@ -508,11 +471,9 @@ for (x in seq(length(atac_seq_list))){
   atac_seq_list[[x]]<-res
   
 }
-
 atac_seq_list<-split(atac_seq_list,names(atac_seq_list))
 atac_seq_list<-lapply(atac_seq_list,unlist)
 atac_seq_list<-lapply(atac_seq_list, unique)
-
 #Deal with complex target names
 multiple_targets<-atac_seq_list[grep(";", names(atac_seq_list))]
 converted_targets<-list()
@@ -527,20 +488,16 @@ for (x in names(multiple_targets)){
     converted_targets[[y]]<-multiple_targets[[x]]
   }
 }
-
 atac_seq_list<-atac_seq_list[-which(names(atac_seq_list) %in% names(multiple_targets))]
 atac_seq_list<-c(converted_targets,atac_seq_list)
 atac_seq_list<-split(atac_seq_list,names(atac_seq_list))
 atac_seq_list<-lapply(atac_seq_list,unlist)
 atac_seq_list<-lapply(atac_seq_list, unique)
-
 #Keep only TF->TF interactions
 atac_seq_list<-atac_seq_list[which(names(atac_seq_list) %in% scenic_output_tfs)]
-
 for (x in names(atac_seq_list)){
   atac_seq_list[[x]]<-atac_seq_list[[x]][atac_seq_list[[x]] %in% scenic_output_tfs]
 }
-
 #Create ATAC-seq interactions
 atac_seq_interactions<-c()
 for (x in names(atac_seq_list)){
@@ -548,11 +505,9 @@ for (x in names(atac_seq_list)){
     atac_seq_interactions<-append(atac_seq_interactions,paste0(y,"->",x))
   }
 }
-
 #Add interactions to the interactions_summary table 
 interactions_summary["ataq-seq"]<-F
 interactions_summary[which(all_unique_interactions %in% atac_seq_interactions),"ataq-seq"]<-T
-
 interactions_summary[interactions_summary$`ataq-seq`==T,]
 ```
 
@@ -567,17 +522,13 @@ for (z in names(regulons)){
     }
   }
 }
-
 regulon_frequency<-(table(all_regulon_interactions))
 all_unique_regulon_interactions<-names(regulon_frequency)
-
 regulon_interactions_summary<-as.data.frame(matrix(ncol=3,nrow=length(unlist(all_unique_regulon_interactions))))
 colnames(regulon_interactions_summary)<-c("TF", "target","frequency")
-
 regulon_interactions_summary$frequency<-as.numeric(regulon_frequency)
 regulon_interactions_summary$TF<-sub("->.*", "", all_unique_regulon_interactions)
 regulon_interactions_summary$target<-sub(".*->", "", all_unique_regulon_interactions)
-
 #Add frequency filter
 frequency_filter=40
 for(x in seq(dim(regulon_interactions_summary)[1])){
@@ -588,7 +539,6 @@ for(x in seq(dim(regulon_interactions_summary)[1])){
     regulon_interactions_summary[x,"frequency_filter"]<-F
   }
 }
-
 #Save the table
 setwd(analysis_directory)
 write.table(regulon_interactions_summary, file='regulon_interactions_summary.tsv', quote=FALSE, sep='\t', row.names = T)
@@ -598,29 +548,23 @@ write.table(regulon_interactions_summary, file='regulon_interactions_summary.tsv
 ```{r}
 #Open regulon table
 regulon_interactions_summary<-read.table(paste0(analysis_directory,"/regulon_interactions_summary.tsv"),sep='\t',header=T)
-
 #Create a list with all regulons
 overall_regulons<-split(regulon_interactions_summary, regulon_interactions_summary$TF)
 for (x in names(overall_regulons)){
   overall_regulons[[x]]<-overall_regulons[[x]]$target
 }
-
 #Remove regulons that are smaller than 15
 remove<-which(lapply(overall_regulons, length)<=15)
 remove_names<-names(remove)
 overall_regulons<-overall_regulons[-remove]
-
 regulon_interactions_summary<-regulon_interactions_summary[-which(regulon_interactions_summary$TF %in% remove_names),]
 regulon_interactions_summary<-regulon_interactions_summary[-which(regulon_interactions_summary$target %in% remove_names),]
-
 #Create AUCell input
 regulon_frequency_filter<-regulon_interactions_summary[regulon_interactions_summary$frequency_filter==T,]
 regulon_targets<-unique(unique(regulon_frequency_filter$target))
-
 input_regulons<-overall_regulons[unique(regulon_frequency_filter$TF)]
 input_for_single_aucell<-t(input[,colnames(input) %in% regulon_targets])
 expr_matrix <- as(input_for_single_aucell, "dgCMatrix")
-
 #Run AUCell
 cells_rankings<-AUCell_buildRankings(expr_matrix)
 cells_AUC <- AUCell_calcAUC(input_regulons, cells_rankings, aucMaxRank = ceiling(0.5 * nrow(cells_rankings)))
@@ -632,22 +576,16 @@ cells_assignment <- AUCell_exploreThresholds(cells_AUC, plotHist=TRUE, assign=TR
 setwd(data_directory)
 cell_annotations<-read.xlsx("nina_annotations.xlsx")
 cell_types<-split(cell_annotations,cell_annotations$TYPE)
-
 try<-aucell
 for (x in names(cell_types)){
   cell_types[[x]]<-try[cell_types[[x]]$CELLID,]
 }
 cell_types<-lapply(cell_types,colMeans)
-
-
 heat_map<-data.frame(matrix(nrow=113, ncol=3))
 colnames(heat_map)<-names(cell_types)
 rownames(heat_map)<-names(cell_types[[1]])
-
 for(x in seq_along(cell_types)){
   heat_map[,x]<-cell_types[[x]]
 }
-
 heatmap(as.matrix(heat_map),Colv = NA, Rowv = NA)
 ```
-
