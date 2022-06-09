@@ -7,6 +7,7 @@ output: html_document
   
 #Download packages
 ```{r}
+#install.packages("igraph")
 
 #install.packages("dplyr")
 
@@ -60,6 +61,7 @@ library(GEOquery)
 library(openxlsx)
 library(stringr)
 library(gplots)
+library(igraph)
 ``` 
 
 #Direcrories
@@ -386,6 +388,50 @@ cistrome_summary_nodes<-unique(c(unique(cistrome_summary$TF),unique(cistrome_sum
 frequency_cistrome_summary<-interactions_summary[which(interactions_summary$cistrome_filter==T &interactions_summary$frequency_filter==T),]
 frequency_cistrome_summary_nodes<-unique(c(unique(frequency_cistrome_summary$target),unique(frequency_cistrome_summary$TF)))
 ```
+
+#Plot interactions from frequency filter marking the ones confirmed by cistrome   
+```{r}
+#Select dataframe for plotting and plot it
+frequency_interactions_plot<-interactions_summary[which(interactions_summary$frequency_filter==T),]
+frequency_interactions_plot<-frequency_interactions_plot[,c(1,2,5)]
+#edges.df <- mutate(frequency_interactions_plot, from=TF, to=target)
+vertices.df <- data.frame(genes=unique(c(frequency_interactions_plot$target, frequency_interactions_plot$TF)))
+
+## Importing to igraph
+g <- graph_from_data_frame(d = frequency_interactions_plot, directed = TRUE, vertices = vertices.df)
+V(g)$degree <- degree(g)
+
+## Select vertices with highest degrees
+v.degree <- degree(g)
+v.sorted <- sort(v.degree, decreasing = TRUE) %>% head(30) %>% names()
+
+g.subset <- induced_subgraph(g, v = v.sorted)
+l <- layout_with_fr(g.subset)
+
+plot(g.subset, 
+     layout=l,
+     edge.arrow.size=0.1,
+     vertex.size=(V(g.subset)$degree/max(V(g.subset)$degree)*27),
+     vertex.label.cex=(V(g.subset)$degree/max(V(g.subset)$degree)*2),
+     edge.width=0.5,
+     vertex.frame.color='white')
+
+dir.create(paste0(path2project, 'figures'))
+
+pdf(paste0(path2project, '/figures/integrated_network.pdf'),
+     width=15,
+     height=12)
+plot(g.subset, 
+     layout=l,
+     edge.arrow.size=0.1,
+     vertex.size=(V(g.subset)$degree/max(V(g.subset)$degree)*27),
+     vertex.label.cex=(V(g.subset)$degree/max(V(g.subset)$degree)*2),
+     edge.width=0.5,
+     vertex.frame.color='white')
+dev.off()
+
+```
+
 
 #Multiple amount of peaks
 ```{r eval=FALSE,echo=FALSE}
