@@ -745,7 +745,7 @@ for(x in seq_along(cell_types_means)){
 
 heat_map<-heat_map[,c(2,3,1)]
 
-heatmap(as.matrix(heat_map),Colv = NA, Rowv = NA, scale="none")
+#heatmap(as.matrix(heat_map),Colv = NA, Rowv = NA, scale="none")
 #heatmap.2(as.matrix(heat_map),Colv = NA, Rowv = NA, scale="row",trace="none")
 ```
 
@@ -914,5 +914,25 @@ for (x in colnames(single_aucell)){
 for (x in colnames(aucell_files_list2[["ETS1"]])){
   hist(aucell_files_list2[["ETS1"]][,x], breaks = 50)
 }
+```
+
+#Make heatmap without binirizing Aucell scores but taking their average (previous chunck)
+```{r}
+#Get the cell types and corresponding cells
+cell_types<-split(cell_annotations,cell_annotations$TYPE)
+
+#Subset and average single_aucell according to the cell type
+for (x in names(cell_types)){
+  cells<-cell_types[[x]]$CELLID
+  cell_types[[x]]<-single_aucell[cells,]
+}
+
+cell_types<-lapply(cell_types, colMeans)
+
+#Make a heatmap
+heat_map<-as.data.frame(cell_types)
+heat_map<-heat_map[,c(2,3,1)]
+
+heatmap(as.matrix(heat_map),Colv = NA, Rowv = NA, scale="row", col = bluered(100))
 ```
 
