@@ -46,7 +46,7 @@ output: html_document
 
 #Load packages
 ```{r}
-#install.packages("ellipsis")
+update.packages("ellipsis")
 #library(dplyr)
 update.packages("htmltools")
 library(GenomicRanges)
@@ -579,108 +579,123 @@ frequency_ataq_seq_summary<-interactions_summary[which(interactions_summary$`ata
 frequency_ataq_seq_summary_nodes<-unique(c(unique(frequency_ataq_seq_summary$TF),unique(frequency_ataq_seq_summary$target)))
 ```
 
-#Create regulon interactions table
-```{r eval=FALSE, echo=FALSE}
-#Create a dataframe with all interactions
-all_regulon_interactions<-c()
-for (z in names(regulons)){
-  for(x in names(regulons[[z]])){
-    for(y in regulons[[z]][[x]]){
-      all_regulon_interactions<-append(all_regulon_interactions,paste0(x,"->",y))
+#Select regulons for binarizing their aucell scores
+```{r}
+#Filter regulons list for TFs that pass frequency filter
+frequency_regulons<-vector("list", length(regulons))
+names(frequency_regulons)<-names(regulons)
+for (x in names(regulons)){
+  keep<-names(regulons[[x]])[names(regulons[[x]])%in% frequency_summary_nodes]
+  frequency_regulons[[x]]<-regulons[[x]][keep]
+}
+
+#Remove the scenic runs list levels and unite all the targets of each TF as one entry
+regulon_targets<-vector("list", length(frequency_summary_nodes))
+names(regulon_targets)<-frequency_summary_nodes
+for (y in frequency_summary_nodes){
+  a<-list()
+  for (x in names(frequency_regulons)){
+    if (sum(y==names(frequency_regulons[[x]]))!=0){
+    pos<-which(names(frequency_regulons[[x]])==y)
+    a[[x]]<-frequency_regulons[[x]][[pos]]
     }
   }
-}
-regulon_frequency<-(table(all_regulon_interactions))
-all_unique_regulon_interactions<-names(regulon_frequency)
-regulon_interactions_summary<-as.data.frame(matrix(ncol=3,nrow=length(unlist(all_unique_regulon_interactions))))
-colnames(regulon_interactions_summary)<-c("TF", "target","frequency")
-regulon_interactions_summary$frequency<-as.numeric(regulon_frequency)
-regulon_interactions_summary$TF<-sub("->.*", "", all_unique_regulon_interactions)
-regulon_interactions_summary$target<-sub(".*->", "", all_unique_regulon_interactions)
-
-#Add frequency filter
-frequency_filter=40
-for(x in seq(dim(regulon_interactions_summary)[1])){
-  f<-regulon_interactions_summary$frequency[x]
-  if(f>=frequency_filter){
-    regulon_interactions_summary[x,"frequency_filter"]<-T
-  }else{
-    regulon_interactions_summary[x,"frequency_filter"]<-F
-  }
+  regulon_targets[[y]]<-a
 }
 
-#Save the table
-setwd(analysis_directory)
-write.table(regulon_interactions_summary, file='regulon_interactions_summary.tsv', quote=FALSE, sep='\t', row.names = T)
-```
-
-```{r}
-regulon_tfs<-c()
-for (x in names(regulons)){
-  regulon_tfs<-append(regulon_tfs,names(regulons[[x]]))
-}
-unique_regulon_tfs<-unique(regulon_tfs)
-
-all_regulon_interactions_trial<-vector("list", length(unique_regulon_tfs))
-names(all_regulon_interactions_trial)<-sort(unique_regulon_tfs)
-
-for (x in names(table(regulon_tfs))){
-  all_regulon_interactions_trial[[x]]<-vector("list", length=table(regulon_tfs)[x])
+#Remove duplicated interactions
+for (x in names(regulon_targets)){
+  regulon_targets[[x]]<-unique(unlist(regulon_targets[[x]]))
 }
 
-```
-
-#Select data to create a single aucell file and binarize it
-```{r}
-#Open regulon table
-regulon_interactions_summary<-read.table(paste0(analysis_directory,"/regulon_interactions_summary.tsv"),sep='\t',header=T)
-
-#Create a list with all regulons
-overall_regulons<-split(regulon_interactions_summary, regulon_interactions_summary$TF)
-for (x in names(overall_regulons)){
-  overall_regulons[[x]]<-overall_regulons[[x]]$target
-}
-
-#Remove regulons that are smaller than 15
-remove<-which(lapply(overall_regulons, length)<=15)
+#Remove small regulons: < 15 interactions
+remove<-which(lapply(regulon_targets, length)<15)
 remove_names<-names(remove)
-overall_regulons<-overall_regulons[-remove]
-regulon_interactions_summary<-regulon_interactions_summary[-which(regulon_interactions_summary$TF %in% remove_names),]
-regulon_interactions_summary<-regulon_interactions_summary[-which(regulon_interactions_summary$target %in% remove_names),]
+regulon_targets<-regulon_targets[-remove]
+```
 
-#Create AUCell input
-regulon_frequency_filter<-regulon_interactions_summary[regulon_interactions_summary$frequency_filter==T,]
-regulon_targets<-unique(unique(regulon_frequency_filter$target))
-input_regulons<-overall_regulons[unique(regulon_frequency_filter$TF)]
-input_for_single_aucell<-t(input[,colnames(input) %in% regulon_targets])
-expr_matrix <- as(input_for_single_aucell, "dgCMatrix")
+#Conduct new aucell for the selected regulons
+```{r}
+#input_for_single_aucell<-scale(input) #scale each gene's expression
+#Select only the cells that have a cell type assigned to it
+input_for_single_aucell<-t(input)
+
+setwd(data_directory)
+cell_annotations<-read.xlsx("nina_annotations.xlsx")
+input_for_single_aucell<-input_for_single_aucell[,cell_annotations$CELLID]
 
 #Run AUCell
+expr_matrix <- as(input_for_single_aucell, "dgCMatrix")
 cells_rankings<-AUCell_buildRankings(expr_matrix)
-cells_AUC <- AUCell_calcAUC(input_regulons, cells_rankings, aucMaxRank = ceiling(0.5 * nrow(cells_rankings)))
+
+cells_AUC <- AUCell_calcAUC(regulon_targets, cells_rankings)
 cells_assignment <- AUCell_exploreThresholds(cells_AUC, plotHist=TRUE, assign=TRUE) 
+```
+#Select thresholds for binarizing
+```{r}
+#Regulons that have a robust assigned threshold
+assigned_regulons<-c("MXI1","PURA", "RORA", "ZNF426", "KLF6", "MLXIP","MXD4","RELA","MAX", "TFDP2","ZNF600", "ETS1", "ZNF217","NR1D2","YY1","ELF2","REST","ELF1","FLI1","SRF")
+
+#Regulons that have a robust threshold, which is not assigned
+switched_regulons<-c("ETV3")
+
+#Regulons that don not have a robust threshold: average of all thresholds
+average_regulons<-c("CIC","TCF3","CRX","ZNF445","ZNF774","NFIC","CEBPZ")
+
+#Select the thresholds
+active_assigned_regulons<-vector("list", length(assigned_regulons))
+names(active_assigned_regulons)<-assigned_regulons
+for (x in assigned_regulons){
+  active_assigned_regulons[[x]]<-cells_assignment[[x]]$assignment
+}
+
+active_average_regulons<-vector("list", length(average_regulons))
+names(active_average_regulons)<-average_regulons
+for (x in average_regulons){
+  thr<-mean(cells_assignment[[x]]$aucThr$thresholds[,1])
+  active_average_regulons[[x]]<-names(which(getAUC(cells_AUC)[x,]>thr))
+}
+
+active_regulons<-c(active_assigned_regulons,active_average_regulons)
 ```
 
 #Heatmap according to cell types
 ```{r}
-setwd(data_directory)
-cell_annotations<-read.xlsx("nina_annotations.xlsx")
+#Get the cell types and corresponding cells
 cell_types<-split(cell_annotations,cell_annotations$TYPE)
 
-try<-aucell
+#Create our new aucell dataframe
+single_aucell<-data.frame(matrix(0,ncol=dim(cell_annotations)[1], nrow = length(names(active_regulons))))
+rownames(single_aucell)<-names(active_regulons)
+colnames(single_aucell)<-cell_annotations[,2]
+
+#Fill the dataframe with values
+for(x in names(active_regulons)){
+  ones<-which(colnames(single_aucell) %in% active_regulons[[x]])
+  single_aucell[x,ones]<-1
+}
+
+#Split our dataframe according to the cell types
 for (x in names(cell_types)){
-  cell_types[[x]]<-try[cell_types[[x]]$CELLID,]
+  cell_types[[x]]<-single_aucell[,cell_types[[x]]$CELLID]
 }
 
-cell_types<-lapply(cell_types,colMeans)
-heat_map<-data.frame(matrix(nrow=113, ncol=3))
-colnames(heat_map)<-names(cell_types)
-rownames(heat_map)<-names(cell_types[[1]])
-
-for(x in seq_along(cell_types)){
-  heat_map[,x]<-cell_types[[x]]
+#Make the heatmap
+calculate_average_expression<-function(x){
+  rowSums(x)/dim(x)[2]
 }
 
-heatmap(as.matrix(heat_map),Colv = NA, Rowv = NA)
-heatmap.2(as.matrix(heat_map),Colv = NA, Rowv = NA, scale="row",trace="none")
+cell_types_means<-lapply(cell_types,calculate_average_expression)
+heat_map<-data.frame(matrix(nrow=length(names(active_regulons)), ncol=length(cell_types_means)))
+colnames(heat_map)<-names(cell_types_means)
+rownames(heat_map)<-names(active_regulons)
+
+for(x in seq_along(cell_types_means)){
+  heat_map[,x]<-cell_types_means[[x]]
+}
+
+heat_map<-heat_map[,c(2,3,1)]
+
+heatmap(as.matrix(heat_map),Colv = NA, Rowv = NA, scale="none")
+#heatmap.2(as.matrix(heat_map),Colv = NA, Rowv = NA, scale="row",trace="none")
 ```
