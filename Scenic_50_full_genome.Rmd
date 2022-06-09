@@ -7,6 +7,8 @@ output: html_document
   
 #Download packages
 ```{r}
+#install.packages("RColorBrewer")
+
 #install.packages("igraph")
 
 #install.packages("dplyr")
@@ -62,6 +64,7 @@ library(openxlsx)
 library(stringr)
 library(gplots)
 library(igraph)
+library(RColorBrewer)
 ``` 
 
 #Direcrories
@@ -394,16 +397,19 @@ frequency_cistrome_summary_nodes<-unique(c(unique(frequency_cistrome_summary$tar
 #Select dataframe for plotting and plot it
 frequency_interactions_plot<-interactions_summary[which(interactions_summary$frequency_filter==T),]
 frequency_interactions_plot<-frequency_interactions_plot[,c(1,2,5)]
-#edges.df <- mutate(frequency_interactions_plot, from=TF, to=target)
-vertices.df <- data.frame(genes=unique(c(frequency_interactions_plot$target, frequency_interactions_plot$TF)))
+vertices.df <- data.frame(genes=unique(c(frequency_interactions_plot$target, frequency_interactions_plot$TF)),cistrome=0)
+vertices.df["cistrome"]<-as.numeric(vertices.df$genes %in% frequency_cistrome_summary_nodes)
 
 ## Importing to igraph
 g <- graph_from_data_frame(d = frequency_interactions_plot, directed = TRUE, vertices = vertices.df)
 V(g)$degree <- degree(g)
+#colrs <- c("gray50", "tomato")
+#V(g)$color <- colrs[V(g)$cistrome]
 
 ## Select vertices with highest degrees
 v.degree <- degree(g)
-v.sorted <- sort(v.degree, decreasing = TRUE) %>% head(30) %>% names()
+v.sorted <- sort(v.degree, decreasing = TRUE)
+v.sorted<-names(which(v.sorted>10))
 
 g.subset <- induced_subgraph(g, v = v.sorted)
 l <- layout_with_fr(g.subset)
@@ -411,25 +417,22 @@ l <- layout_with_fr(g.subset)
 plot(g.subset, 
      layout=l,
      edge.arrow.size=0.1,
-     vertex.size=(V(g.subset)$degree/max(V(g.subset)$degree)*27),
-     vertex.label.cex=(V(g.subset)$degree/max(V(g.subset)$degree)*2),
+     vertex.size=(V(g.subset)$degree/max(V(g.subset)$degree)*15),
+     vertex.label.cex=(V(g.subset)$degree/max(V(g.subset)$degree)*1.3),
      edge.width=0.5,
      vertex.frame.color='white')
 
-dir.create(paste0(path2project, 'figures'))
-
-pdf(paste0(path2project, '/figures/integrated_network.pdf'),
+pdf(paste0(analysis_directory,'/figures/frequency_interactions_plot.pdf'),
      width=15,
      height=12)
 plot(g.subset, 
      layout=l,
      edge.arrow.size=0.1,
-     vertex.size=(V(g.subset)$degree/max(V(g.subset)$degree)*27),
-     vertex.label.cex=(V(g.subset)$degree/max(V(g.subset)$degree)*2),
+     vertex.size=(V(g.subset)$degree/max(V(g.subset)$degree)*18),
+     vertex.label.cex=(V(g.subset)$degree/max(V(g.subset)$degree)*1.5),
      edge.width=0.5,
      vertex.frame.color='white')
 dev.off()
-
 ```
 
 
@@ -745,3 +748,171 @@ heat_map<-heat_map[,c(2,3,1)]
 heatmap(as.matrix(heat_map),Colv = NA, Rowv = NA, scale="none")
 #heatmap.2(as.matrix(heat_map),Colv = NA, Rowv = NA, scale="row",trace="none")
 ```
+
+#Trying with all regulons and their automatically assigned thresholds
+```{r}
+all_regulons<-names(regulon_targets)
+
+active_assigned_regulons<-vector("list", length(all_regulons))
+names(active_assigned_regulons)<-all_regulons
+for (x in all_regulons){
+  active_assigned_regulons[[x]]<-cells_assignment[[x]]$assignment
+}
+#Get the cell types and corresponding cells
+cell_types<-split(cell_annotations,cell_annotations$TYPE)
+
+#Create our new aucell dataframe
+single_aucell<-data.frame(matrix(0,ncol=dim(cell_annotations)[1], nrow = length(names(active_assigned_regulons))))
+rownames(single_aucell)<-names(active_assigned_regulons)
+colnames(single_aucell)<-cell_annotations[,2]
+
+#Fill the dataframe with values
+for(x in names(active_assigned_regulons)){
+  ones<-which(colnames(single_aucell) %in% active_assigned_regulons[[x]])
+  single_aucell[x,ones]<-1
+}
+
+#Split our dataframe according to the cell types
+for (x in names(cell_types)){
+  cell_types[[x]]<-single_aucell[,cell_types[[x]]$CELLID]
+}
+
+#Make the heatmap
+calculate_average_expression<-function(x){
+  rowSums(x)/dim(x)[2]
+}
+
+cell_types_means<-lapply(cell_types,calculate_average_expression)
+heat_map<-data.frame(matrix(nrow=length(names(active_assigned_regulons)), ncol=length(cell_types_means)))
+colnames(heat_map)<-names(cell_types_means)
+rownames(heat_map)<-names(active_assigned_regulons)
+
+for(x in seq_along(cell_types_means)){
+  heat_map[,x]<-cell_types_means[[x]]
+}
+
+heat_map<-heat_map[,c(2,3,1)]
+
+heatmap(as.matrix(heat_map),Colv = NA, Rowv = NA, scale="none",col = bluered(100))
+```
+
+#Trying with all regulons and average of their thresholds
+```{r}
+all_regulons<-names(regulon_targets)
+
+active_assigned_regulons<-vector("list", length(all_regulons))
+names(active_assigned_regulons)<-all_regulons
+for (x in all_regulons){
+  thr<-mean(cells_assignment[[x]]$aucThr$thresholds[,1])
+  active_assigned_regulons[[x]]<-names(which(getAUC(cells_AUC)[x,]>thr))
+}
+
+#Get the cell types and corresponding cells
+cell_types<-split(cell_annotations,cell_annotations$TYPE)
+
+#Create our new aucell dataframe
+single_aucell<-data.frame(matrix(0,ncol=dim(cell_annotations)[1], nrow = length(names(active_assigned_regulons))))
+rownames(single_aucell)<-names(active_assigned_regulons)
+colnames(single_aucell)<-cell_annotations[,2]
+
+#Fill the dataframe with values
+for(x in names(active_assigned_regulons)){
+  ones<-which(colnames(single_aucell) %in% active_assigned_regulons[[x]])
+  single_aucell[x,ones]<-1
+}
+
+#Split our dataframe according to the cell types
+for (x in names(cell_types)){
+  cell_types[[x]]<-single_aucell[,cell_types[[x]]$CELLID]
+}
+
+#Make the heatmap
+calculate_average_expression<-function(x){
+  rowSums(x)/dim(x)[2]
+}
+
+cell_types_means<-lapply(cell_types,calculate_average_expression)
+heat_map<-data.frame(matrix(nrow=length(names(active_assigned_regulons)), ncol=length(cell_types_means)))
+colnames(heat_map)<-names(cell_types_means)
+rownames(heat_map)<-names(active_assigned_regulons)
+
+for(x in seq_along(cell_types_means)){
+  heat_map[,x]<-cell_types_means[[x]]
+}
+
+heat_map<-heat_map[,c(2,3,1)]
+
+heatmap(as.matrix(heat_map),Colv = NA, Rowv = NA, scale="none", col = bluered(100))
+```
+#Another approach for Aucell binarizing
+```{r}
+#Open all Aucell files from Scenic
+aucell_files<-vector("list",length=n)
+names(aucell_files)<-seq(n)
+for (x in seq(n)){
+  aucell_files[[as.character(x)]]<-read.csv(paste0(data_directory,"/SCENIC50/Output_full_genome/run_",as.character(x),"/aucell.csv"),header=T,row.names = 1)
+  aucell_files[[as.character(x)]]
+}
+
+#Remove "..." from colnames
+for (x in names(aucell_files)){
+  colnames(aucell_files[[x]])<-gsub(colnames(aucell_files[[x]]),pattern="[...]",replacement="")
+}
+
+#Keep only relevant columns and rows
+for (x in names(aucell_files)){
+  aucell_files[[x]]<-aucell_files[[x]][rownames(aucell_files[[x]]) %in% cell_annotations$CELLID,colnames(aucell_files[[x]]) %in% frequency_summary_nodes]
+}
+
+#Change fromat from dataframes to a nested list
+aucell_files_list<-vector("list", length(aucell_files))
+names(aucell_files_list)<-names(aucell_files)
+for (x in names(aucell_files)){
+  sublist<-vector("list",length = dim(aucell_files[[x]])[2])
+  names(sublist)<-colnames(aucell_files[[x]])
+  for(y in colnames(aucell_files[[x]])){
+    sublist[[y]]<-aucell_files[[x]][,y]
+  }
+  aucell_files_list[[x]]<-sublist
+}
+
+#Remove the scenic runs list levels and unite all genes as one entry
+aucell_files_list2<-vector("list", length(frequency_summary_nodes))
+names(aucell_files_list2)<-frequency_summary_nodes
+for (y in frequency_summary_nodes){
+  a<-list()
+  for (x in names(aucell_files_list)){
+    if (sum(y==names(aucell_files_list[[x]]))!=0){
+    pos<-which(names(aucell_files_list[[x]])==y)
+    a[[x]]<-aucell_files_list[[x]][[pos]]
+    }
+  }
+  aucell_files_list2[[y]]<-a
+}
+
+#Convert entry for each TF into a dataframe
+aucell_files_list2<-lapply(aucell_files_list2, as.data.frame)
+for (x in names(aucell_files_list2)){
+  rownames(aucell_files_list2[[x]])<-cell_annotations$CELLID
+}
+
+#Average the score for each gene NORMALIZE HERE???
+average_gene_aucell<-vector("list", length(aucell_files_list2))
+names(average_gene_aucell)<-names(aucell_files_list2)
+for (x in names(aucell_files_list2)){
+  average_gene_aucell[[x]]<-rowMeans(aucell_files_list2[[x]])
+}
+
+single_aucell<-as.data.frame(average_gene_aucell)
+
+#Plot histograms for each gene
+for (x in colnames(single_aucell)){
+  hist(single_aucell[,x], main = x, breaks = 50)
+}
+
+#Plot histogram for one specific gene
+for (x in colnames(aucell_files_list2[["ETS1"]])){
+  hist(aucell_files_list2[["ETS1"]][,x], breaks = 50)
+}
+```
+
