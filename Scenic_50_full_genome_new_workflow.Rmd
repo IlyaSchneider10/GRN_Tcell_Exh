@@ -1,0 +1,340 @@
+---
+title: "Output_full_genome_new_workflow"
+author: "Ilya"
+date: "10/06/2022"
+output: html_document
+---
+  
+#Download packages
+```{r}
+#install.packages("RColorBrewer")
+
+#install.packages("igraph")
+
+#install.packages("dplyr")
+
+#install.packages("openxlsx")
+
+#install.packages("gplots")
+
+#if (!require("BiocManager", quietly = TRUE))
+#   install.packages("BiocManager")
+#BiocManager::install("GenomicRanges")
+
+#if (!require("BiocManager", quietly = TRUE))
+#   install.packages("BiocManager")
+#BiocManager::install("TxDb.Hsapiens.UCSC.hg38.knownGene")
+
+#if (!require("BiocManager", quietly = TRUE))
+#   install.packages("BiocManager")
+#BiocManager::install("Homo.sapiens")
+
+#if (!require("BiocManager", quietly = TRUE))
+#   install.packages("BiocManager")
+#BiocManager::install("plyranges")
+
+#install.packages("ellipsis")
+#if (!require("BiocManager", quietly = TRUE))
+#   install.packages("BiocManager")
+#BiocManager::install("AUCell")
+
+#if (!require("BiocManager", quietly = TRUE))
+#install.packages("BiocManager")
+#BiocManager::install("GSEABase")
+
+#if (!require("BiocManager", quietly = TRUE))
+#   install.packages("BiocManager")
+#BiocManager::install("GEOquery")
+```
+
+#Load packages
+```{r}
+update.packages("ellipsis")
+library(dplyr)
+update.packages("htmltools")
+library(GenomicRanges)
+library(GenomicFeatures)
+library(TxDb.Hsapiens.UCSC.hg38.knownGene)
+library(Homo.sapiens)
+library(plyranges)
+library(AUCell)
+library(GSEABase)
+library(GEOquery)
+library(openxlsx)
+library(stringr)
+library(gplots)
+library(igraph)
+library(RColorBrewer)
+``` 
+
+#Direcrories
+```{r}
+main_directory<-"/media/ag-cherrmann/ischneider/GRNTcellExh/scr"
+data_directory<-"/media/ag-cherrmann/ischneider/GRNTcellExh/data"
+analysis_directory<-"/media/ag-cherrmann/ischneider/GRNTcellExh/analysis"
+```
+
+#Edit the input file for the 50 Scenic runs
+```{r eval=FALSE, echo=FALSE}
+#Read input table
+raw_input<-read.csv("/media/ag-cherrmann/cramirez/tcd8ExscSeq/data/maike2020/nina_thimme_raw_counts.csv",header=T, row.names=1)
+
+#Read cell annotations
+setwd(data_directory)
+cell_annotations<-read.xlsx("nina_annotations.xlsx")
+
+#Remove RNA genes
+raw_input<-t(as.data.frame(raw_input))
+raw_input<-raw_input[,17:dim(raw_input)[2]]
+
+#Remove chromosme tags and duplicates
+genes<-gsub("\\_.*","",colnames(raw_input))
+remove<-which(duplicated(genes))
+genes<-genes[-remove] 
+raw_input<-raw_input[,-remove]
+colnames(raw_input)<-genes
+raw_input<-as.data.frame(raw_input)
+
+#Bolouri paper nodes with appropriate nomenclature substitutions
+paper_nodes<-c("HNF1A","TNFSF9","TNFRSF9","IL12RB1","IL12RB2","IL21R","FCER1G","CD3","CD8","CD28","PIK3K","EZH2","PRC2","IL2R","RAS","MAPK1","JUN","FOS","BATF","AKT1", "AKT2", "AKT3","FOXO1","EGR2","EGR3","BACH2","ID3","ID2","NFKB1","MTOR","IRF4","TCF3","NFATC2","PPARGC1A","BCL6","PRDM1","NFATC1","CXCR5","TBX21","ZEB2","LAG3","PDCD1","HIF1A","KLRG1","PPARA","CTLA4","HAVCR2","BTLA","NR4A1","CD160","TIGIT","IL15RA","CD244","CD2B4","MYC","RUNX3","EOMES","FAS","FASLG","GZMA","GZMB","PRF1","IFNG")
+paper_substitutions<-list("HNF1A","TNFRSF9",c("IL12RB1","IL12RB2"),c("AKT1","AKT2","AKT3"),"TCF3","PRDM1","TBX21","PDCD1","PPARA","TNFSF9","FCER1G","MAPK1","PPARGC1A","IL15RA")
+names(paper_substitutions)<-c("TCF1","41BB","IL12R","AKT","E2A","BLIMP1","TBET","PD1","PPAR","CD137L","CD3","MAPK","PGC1A","IL15R")
+
+#Keep only cells with annotations
+raw_input<-raw_input[cell_annotations$CELLID,]
+
+#Keep only the genes that meet the filtering criteria
+input<-raw_input[,names(which(colSums(raw_input)>2*0.01*nrow(raw_input))==T)]
+
+#Include all paper nodes into the input table
+paper_nodes_in_input<-paper_nodes[paper_nodes %in% colnames(input)]
+paper_nodes_left_out<-paper_nodes[! paper_nodes %in% colnames(input)]
+input<-cbind(input,raw_input[,which(colnames(raw_input) %in% paper_nodes_left_out)])
+```
+
+#Export the input table
+```{r eval=FALSE, echo=FALSE}
+setwd("/media/ag-cherrmann/ischneider/GRNTcellExh/data/SCENIC50/Input")
+write.table(input, file='scenic_input_full_genome.tsv', quote=FALSE, sep='\t', row.names = T)
+#Code for bash to iterate Scenic 50 times
+#bash /media/ag-cherrmann/ischneider/GRNTcellExh/scr/Scenic.txt
+
+#Save the table
+setwd(analysis_directory)
+write.table(input, file='scenic_input_full_genome.tsv', quote=FALSE, sep='\t', row.names = T)
+```
+
+#Select all TFs from aucell files
+```{r}
+#Number of scenic runs
+n=25
+
+#Open all aucell files and keep TFs from them
+aucell_tfs<-vector("list",length=n)
+names(aucell_tfs)<-seq(n)
+for (x in seq(n)){
+  aucell<-read.csv(paste0(data_directory,"/SCENIC50/Output_full_genome_new_workflow/run_",as.character(x),"/aucell.csv"),header=T,row.names = 1)
+  aucell_tfs[[as.character(x)]]<-colnames(aucell)
+}
+
+aucell_tfs<-lapply(aucell_tfs, gsub, pattern="[...]",replacement="")
+scenic_output_tfs<-unique(unlist(aucell_tfs))
+```
+
+#Get targets for TFs from reg files
+```{r}
+#Get target column from each reg file
+reg_targets<-vector("list",length=n)
+names(reg_targets)<-seq(n)
+for (x in seq(n)){
+  reg<-read.csv(paste0(data_directory,"/SCENIC50/Output_full_genome_new_workflow/run_",as.character(x),"/reg.csv"),header=T)
+  reg_targets[[as.character(x)]]<-reg
+}
+
+change_reg_format<-function(r){
+  names<-c(r[2,1:2],r[1,3:dim(r)[2]])
+  y<-setNames(r,names)
+  y<-y[-c(1,2),]
+}
+
+reg_targets<-lapply(reg_targets,change_reg_format)
+for (x in names(reg_targets)){
+  reg_targets[[x]]<-split(reg_targets[[x]],reg_targets[[x]]$TF)
+}
+
+for (x in names(reg_targets)){
+  for (y in names(reg_targets[[x]])){
+    reg_targets[[x]][[y]]<-reg_targets[[x]][[y]]$TargetGenes
+  }
+}
+
+#Extract target names
+extract_targets <- function(x){
+  targets <- regmatches(x, gregexpr("'[^']*'", x))[[1]] 
+  gsub("'", '', targets)
+}
+
+extract_all_unique_targets<-function(obj){
+  unique(extract_targets(paste0(c(obj),collapse = "")))
+}
+
+for (x in names(reg_targets)){
+  for(y in names(reg_targets[[x]])){
+    reg_targets[[x]][[y]]<-extract_all_unique_targets(reg_targets[[x]][[y]])
+  }
+}
+
+regulons<-reg_targets
+for (x in names(reg_targets)){
+  for(y in names(reg_targets[[x]])){
+    reg_targets[[x]][[y]]<-reg_targets[[x]][[y]][reg_targets[[x]][[y]] %in% scenic_output_tfs] #we keep not only TF->TF interactions
+  }
+}
+
+#Remove self regulation
+for (y in names(reg_targets)){
+  for (x in scenic_output_tfs){
+    lookup<-x==reg_targets[[y]][[x]]
+    pos<-which(lookup==T)
+    if(sum(lookup)!=0){
+      reg_targets[[y]][[x]]<-reg_targets[[y]][[x]][-c(pos)]
+    }
+  }
+} 
+
+#Remove TFs with no targets
+for (x in names(reg_targets)){
+  remove<-which(lapply(reg_targets[[x]], length)==0)
+  reg_targets[[x]]<-reg_targets[[x]][-remove]
+}
+
+reg_tfs<-c()
+for (x in names(reg_targets)){
+  reg_tfs<-append(reg_tfs,names(reg_targets[[x]]))
+}
+reg_tfs<-unique(reg_tfs)
+```
+
+#Create a file with all the interactions that we want to keep
+```{r}
+#Put all interactions in dataframe form
+all_interactions<-c()
+for (z in names(reg_targets)){
+  for(x in names(reg_targets[[z]])){
+    for(y in reg_targets[[z]][[x]]){
+      all_interactions<-append(all_interactions,paste0(x,"->",y))
+    }
+  }
+}
+
+frequency<-(table(all_interactions))
+all_unique_interactions<-names(frequency)
+interactions_summary<-as.data.frame(matrix(ncol=3,nrow=length(unlist(all_unique_interactions))))
+colnames(interactions_summary)<-c("TF", "target","frequency")
+interactions_summary$frequency<-as.numeric(frequency)
+interactions_summary$TF<-sub("->.*", "", all_unique_interactions)
+interactions_summary$target<-sub(".*->", "", all_unique_interactions)
+
+#Add frequency filter
+frequency_filter=20
+for(x in seq(dim(interactions_summary)[1])){
+  f<-interactions_summary$frequency[x]
+  if(f>=frequency_filter){
+    interactions_summary[x,"frequency_filter"]<-T
+  }else{
+    interactions_summary[x,"frequency_filter"]<-F
+  }
+}
+
+#Dataframe for interactions that pass frequency filter
+frequency_summary<-interactions_summary[which(interactions_summary$frequency_filter==T),]
+unique(frequency_summary$target)
+frequency_summary_nodes<-unique(c(unique(frequency_summary$target),unique(frequency_summary$TF)))
+```
+
+#Select regulons for binarizing their aucell scores
+```{r}
+#Filter regulons list for TFs that pass frequency filter
+frequency_regulons<-vector("list", length(regulons))
+names(frequency_regulons)<-names(regulons)
+for (x in names(regulons)){
+  keep<-names(regulons[[x]])[names(regulons[[x]])%in% frequency_summary_nodes]
+  frequency_regulons[[x]]<-regulons[[x]][keep]
+}
+
+#Remove the scenic runs list levels and unite all the targets of each TF as one entry
+regulon_targets<-vector("list", length(frequency_summary_nodes))
+names(regulon_targets)<-frequency_summary_nodes
+for (y in frequency_summary_nodes){
+  a<-list()
+  for (x in names(frequency_regulons)){
+    if (sum(y==names(frequency_regulons[[x]]))!=0){
+    pos<-which(names(frequency_regulons[[x]])==y)
+    a[[x]]<-frequency_regulons[[x]][[pos]]
+    }
+  }
+  regulon_targets[[y]]<-a
+}
+```
+
+#Conduct new aucell for the selected regulons
+```{r}
+#Keep only unique interactions that satisfy our frequency criteria
+for (x in names(regulon_targets)){
+  regulon_targets[[x]]<-sort(table(unlist(regulon_targets[[x]])),decreasing = T)
+}
+
+for (x in names(regulon_targets)){
+  regulon_targets[[x]]<-names(which((regulon_targets[[x]]>=1)==T))
+}
+
+#Remove small regulons: < 15 interactions
+remove<-which(lapply(regulon_targets, length)<15)
+remove_names<-names(remove)
+regulon_targets<-regulon_targets[-remove]
+
+#Select only the cells that have a cell type assigned to it
+input_for_single_aucell<-t(input)
+
+setwd(data_directory)
+cell_annotations<-read.xlsx("nina_annotations.xlsx")
+input_for_single_aucell<-input_for_single_aucell[,cell_annotations$CELLID]
+
+#Run AUCell
+expr_matrix <- as(input_for_single_aucell, "dgCMatrix")
+cells_rankings<-AUCell_buildRankings(expr_matrix)
+
+cells_AUC <- AUCell_calcAUC(regulon_targets, cells_rankings)
+cells_assignment <- AUCell_exploreThresholds(cells_AUC, plotHist=TRUE, assign=TRUE) 
+```
+
+#Conduct new aucell for the selected regulons
+```{r}
+#Keep only unique interactions that satisfy our frequency criteria
+for (x in names(regulon_targets)){
+  regulon_targets[[x]]<-sort(table(unlist(regulon_targets[[x]])),decreasing = T)
+}
+
+for (x in names(regulon_targets)){
+  regulon_targets[[x]]<-names(which((regulon_targets[[x]]>=10)==T))
+}
+
+#Remove small regulons: < 15 interactions
+remove<-which(lapply(regulon_targets, length)<15)
+remove_names<-names(remove)
+regulon_targets<-regulon_targets[-remove]
+
+#Select only the cells that have a cell type assigned to it
+input_for_single_aucell<-t(input)
+
+setwd(data_directory)
+cell_annotations<-read.xlsx("nina_annotations.xlsx")
+input_for_single_aucell<-input_for_single_aucell[,cell_annotations$CELLID]
+
+#Run AUCell
+expr_matrix <- as(input_for_single_aucell, "dgCMatrix")
+cells_rankings<-AUCell_buildRankings(expr_matrix)
+
+cells_AUC <- AUCell_calcAUC(regulon_targets, cells_rankings)
+cells_assignment <- AUCell_exploreThresholds(cells_AUC, plotHist=TRUE, assign=TRUE) 
+```
