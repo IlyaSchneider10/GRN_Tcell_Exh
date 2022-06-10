@@ -118,6 +118,7 @@ write.table(input, file='scenic_input_full_genome.tsv', quote=FALSE, sep='\t', r
 setwd(analysis_directory)
 write.table(input, file='scenic_input_full_genome.tsv', quote=FALSE, sep='\t', row.names = T)
 ```
+
 #Open input table
 ```{r}
 input<-read.table(paste0("/media/ag-cherrmann/ischneider/GRNTcellExh/data/SCENIC50/Input","/scenic_input_full_genome.tsv"),sep='\t',header=T)
@@ -652,9 +653,13 @@ for (y in frequency_summary_nodes){
   regulon_targets[[y]]<-a
 }
 
-#Remove duplicated interactions
+#Keep only unique interactions that satisfy our frequency criteria
 for (x in names(regulon_targets)){
-  regulon_targets[[x]]<-unique(unlist(regulon_targets[[x]]))
+  regulon_targets[[x]]<-sort(table(unlist(regulon_targets[[x]])),decreasing = T)
+}
+
+for (x in names(regulon_targets)){
+  regulon_targets[[x]]<-names(which((regulon_targets[[x]]>=5)==T))
 }
 
 #Remove small regulons: < 15 interactions
@@ -680,6 +685,7 @@ cells_rankings<-AUCell_buildRankings(expr_matrix)
 cells_AUC <- AUCell_calcAUC(regulon_targets, cells_rankings)
 cells_assignment <- AUCell_exploreThresholds(cells_AUC, plotHist=TRUE, assign=TRUE) 
 ```
+
 #Select thresholds for binarizing
 ```{r}
 #Regulons that have a robust assigned threshold
