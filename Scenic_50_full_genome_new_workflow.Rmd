@@ -144,6 +144,11 @@ setwd(data_directory)
 cell_annotations<-read.xlsx("nina_annotations.xlsx")
 cell_types<-split(cell_annotations,cell_annotations$TYPE)
 cell_types<-cell_types[c(2,3,1)]
+
+cell_types_cell_ids<-cell_types
+for(x in names(cell_types)){
+  cell_types_cell_ids[[x]]<-cell_types[[x]]$CELLID
+}
 ```
 
 #Select all TFs from aucell files
@@ -585,7 +590,19 @@ for (x in names(cell_types)){
 aucell_scores<-aucell_scores[,cell_ids_ordered]
 
 #Make a heatmap
-heatmap(as.matrix(aucell_scores),Colv = NA, Rowv = NA, scale="none",col = bluered(100))
+#heatmap(as.matrix(aucell_scores),Colv = NA, Rowv = NA, scale="none",col = bluered(100))
+
+aucell_scores<-t(scale(t(aucell_scores)))
+
+pdf(paste0(analysis_directory,'/figures/new_aucell_norm.pdf'),
+     width=15,
+     height=40)
+
+Heatmap(aucell_scores,cluster_rows = F,cluster_columns = F, column_labels = rep("",length(colnames(aucell_scores))), column_split = rep(names(cell_types), times = c(dim(cell_types[[1]])[1],dim(cell_types[[2]])[1],dim(cell_types[[3]])[1])))
+dev.off()
+
+sum(apply(aucell_scores, 1, is.bimodal))/dim(aucell_scores)[1]
+sum(apply(aucell_scores, 1, bimodality_coefficient)>0.555)/dim(aucell_scores)[1]
 ```
 
 #Analyze input expression of the genes we want to conduct AUCell on 
@@ -595,19 +612,20 @@ frequency_regulons_targets<-unique(unlist(regulon_targets))
 
 input_for_single_aucell<-input_for_single_aucell[frequncy_regulons_targets[frequncy_regulons_targets %in% row.names(input_for_single_aucell)],]
 
+cell_types_input_single_aucell<-cell_types
 for (x in names(cell_types)){
-  cell_types[[x]]<-input_for_single_aucell[,cell_types[[x]]$CELLID]
+  cell_types_input_single_aucell[[x]]<-input_for_single_aucell[,cell_types[[x]]$CELLID]
 }
 
-cell_types_scaled<-cell_types
-for(x in names(cell_types)){
-  cell_types_scaled[[x]]<-t(scale(t(cell_types[[x]])))
+cell_types_scaled<-cell_types_input_single_aucell
+for(x in names(cell_types_input_single_aucell)){
+  cell_types_scaled[[x]]<-t(scale(t(cell_types_input_single_aucell[[x]])))
 }
 
 cell_types_scaled_avrg<-lapply(cell_types_scaled,rowMeans)
 cell_types_avrg<-as.data.frame(cell_types_scaled_avrg)
 
-heatmap(as.matrix(cell_types_avrg[1:250,]),Colv = NA, Rowv = NA, scale="none",col = bluered(100))
+heatmap(as.matrix(cell_types_avrg),Colv = NA, Rowv = NA, scale="none",col = bluered(100))
 ```
 
 #Another approach for Aucell binarizing
@@ -626,18 +644,19 @@ for (x in names(aucell_files)){
 }
 
 #Keep only relevant columns and rows
+aucell_files_frequency<-aucell_files
 for (x in names(aucell_files)){
-  aucell_files[[x]]<-aucell_files[[x]][,colnames(aucell_files[[x]]) %in% frequency_summary_nodes]
+  aucell_files_frequency[[x]]<-aucell_files[[x]][,colnames(aucell_files[[x]]) %in% frequency_summary_nodes]
 }
 
 #Change fromat from dataframes to a nested list
-aucell_files_list<-vector("list", length(aucell_files))
-names(aucell_files_list)<-names(aucell_files)
-for (x in names(aucell_files)){
-  sublist<-vector("list",length = dim(aucell_files[[x]])[2])
-  names(sublist)<-colnames(aucell_files[[x]])
-  for(y in colnames(aucell_files[[x]])){
-    sublist[[y]]<-aucell_files[[x]][,y]
+aucell_files_list<-vector("list", length(aucell_files_frequency))
+names(aucell_files_list)<-names(aucell_files_frequency)
+for (x in names(aucell_files_frequency)){
+  sublist<-vector("list",length = dim(aucell_files_frequency[[x]])[2])
+  names(sublist)<-colnames(aucell_files_frequency[[x]])
+  for(y in colnames(aucell_files_frequency[[x]])){
+    sublist[[y]]<-aucell_files_frequency[[x]][,y]
   }
   aucell_files_list[[x]]<-sublist
 }
@@ -665,20 +684,16 @@ aucell_files_list2<-lapply(aucell_files_list2, rowMeans)
 single_aucell<-as.data.frame(aucell_files_list2)
 
 #Split the dataframe into phenotypes, scale expression for each phenotype and make an average
-setwd(data_directory)
-cell_annotations<-read.xlsx("nina_annotations.xlsx")
-cell_types<-split(cell_annotations,cell_annotations$TYPE)
-cell_types<-cell_types[c(2,3,1)]
-
+single_aucell_cell_types<-cell_types
 for (x in names(cell_types)){
-  cell_types[[x]]<-single_aucell[cell_types[[x]]$CELLID,]
+  single_aucell_cell_types[[x]]<-single_aucell[cell_types[[x]]$CELLID,]
 }
 
-cell_types<-lapply(cell_types,scale)
-cell_types<-lapply(cell_types,colMeans)
-single_average_aucell<-as.data.frame(cell_types)
+single_aucell_cell_types<-lapply(single_aucell_cell_types,scale)
+single_aucell_cell_types<-lapply(single_aucell_cell_types,colMeans)
+single_average_aucell<-as.data.frame(single_aucell_cell_types)
 
-pdf(paste0(analysis_directory,'/figures/heatmap.pdf'),
+pdf(paste0(analysis_directory,'/figures/heatmap_average_aucell.pdf'),
      width=15,
      height=40)
 Heatmap(as.matrix(single_average_aucell),cluster_rows = F,cluster_columns = F)
@@ -686,3 +701,21 @@ dev.off()
 
 #heatmap(as.matrix(single_average_aucell),Colv = NA, Rowv = NA, scale="none",col = bluered(100))
 ```
+
+#Analyze the distributions of scenic aucell scores
+```{r}
+library(LaplacesDemon)
+bimodaltest_1<-c()
+for (x in names(aucell_files_frequency)){
+  bimodaltest_1<-append(bimodaltest_1,sum(apply(aucell_files_frequency[[x]], 2, is.bimodal))/dim(aucell_files_frequency[[x]])[2])
+}
+mean_bimodaltest_1<-mean(bimodaltest_1)
+
+library(mousetrap)
+bimodaltest_2<-c()
+for (x in names(aucell_files_frequency)){
+  bimodaltest_2<-append(bimodaltest_2,sum(apply(aucell_files_frequency[[x]], 2, bimodality_coefficient)>0.555)/dim(aucell_files_frequency[[x]])[2])
+}
+mean_bimodaltest_2<-mean(bimodaltest_2)
+```
+
