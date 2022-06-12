@@ -45,6 +45,11 @@ output: html_document
 #if (!require("BiocManager", quietly = TRUE))
 #   install.packages("BiocManager")
 #BiocManager::install("GEOquery")
+
+if (!require("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+BiocManager::install("ComplexHeatmap")
 ```
 
 #Load packages
@@ -65,6 +70,7 @@ library(stringr)
 library(gplots)
 library(igraph)
 library(RColorBrewer)
+library(ComplexHeatmap)
 ``` 
 
 #Direcrories
@@ -555,9 +561,6 @@ regulon_targets<-regulon_targets[-remove]
 
 #Select only the cells that have a cell type assigned to it
 input_for_single_aucell<-t(input)
-
-setwd(data_directory)
-cell_annotations<-read.xlsx("nina_annotations.xlsx")
 input_for_single_aucell<-input_for_single_aucell[,cell_annotations$CELLID]
 
 #Run AUCell
@@ -583,4 +586,103 @@ aucell_scores<-aucell_scores[,cell_ids_ordered]
 
 #Make a heatmap
 heatmap(as.matrix(aucell_scores),Colv = NA, Rowv = NA, scale="none",col = bluered(100))
+```
+
+#Analyze input expression of the genes we want to conduct AUCell on 
+```{r}
+#Subselect the input_for_single_aucell
+frequency_regulons_targets<-unique(unlist(regulon_targets))
+
+input_for_single_aucell<-input_for_single_aucell[frequncy_regulons_targets[frequncy_regulons_targets %in% row.names(input_for_single_aucell)],]
+
+for (x in names(cell_types)){
+  cell_types[[x]]<-input_for_single_aucell[,cell_types[[x]]$CELLID]
+}
+
+cell_types_scaled<-cell_types
+for(x in names(cell_types)){
+  cell_types_scaled[[x]]<-t(scale(t(cell_types[[x]])))
+}
+
+cell_types_scaled_avrg<-lapply(cell_types_scaled,rowMeans)
+cell_types_avrg<-as.data.frame(cell_types_scaled_avrg)
+
+heatmap(as.matrix(cell_types_avrg[1:250,]),Colv = NA, Rowv = NA, scale="none",col = bluered(100))
+```
+
+#Another approach for Aucell binarizing
+```{r}
+#Open all Aucell files from Scenic
+aucell_files<-vector("list",length=n)
+names(aucell_files)<-seq(n)
+for (x in seq(n)){
+  aucell_files[[as.character(x)]]<-read.csv(paste0(data_directory,"/SCENIC50/Output_full_genome_new_workflow/run_",as.character(x),"/aucell.csv"),header=T,row.names = 1)
+  aucell_files[[as.character(x)]]
+}
+
+#Remove "..." from colnames
+for (x in names(aucell_files)){
+  colnames(aucell_files[[x]])<-gsub(colnames(aucell_files[[x]]),pattern="[...]",replacement="")
+}
+
+#Keep only relevant columns and rows
+for (x in names(aucell_files)){
+  aucell_files[[x]]<-aucell_files[[x]][,colnames(aucell_files[[x]]) %in% frequency_summary_nodes]
+}
+
+#Change fromat from dataframes to a nested list
+aucell_files_list<-vector("list", length(aucell_files))
+names(aucell_files_list)<-names(aucell_files)
+for (x in names(aucell_files)){
+  sublist<-vector("list",length = dim(aucell_files[[x]])[2])
+  names(sublist)<-colnames(aucell_files[[x]])
+  for(y in colnames(aucell_files[[x]])){
+    sublist[[y]]<-aucell_files[[x]][,y]
+  }
+  aucell_files_list[[x]]<-sublist
+}
+
+#Remove the scenic runs list levels and unite all genes as one entry
+aucell_files_list2<-vector("list", length(frequency_summary_nodes))
+names(aucell_files_list2)<-frequency_summary_nodes
+for (y in frequency_summary_nodes){
+  a<-list()
+  for (x in names(aucell_files_list)){
+    if (sum(y==names(aucell_files_list[[x]]))!=0){
+    pos<-which(names(aucell_files_list[[x]])==y)
+    a[[x]]<-aucell_files_list[[x]][[pos]]
+    }
+  }
+  aucell_files_list2[[y]]<-a
+}
+
+#Convert entry for each TF into a dataframe, calculate average expression along scenic runs and combine results in a single dataframe
+aucell_files_list2<-lapply(aucell_files_list2, as.data.frame)
+for (x in names(aucell_files_list2)){
+  rownames(aucell_files_list2[[x]])<-cell_annotations$CELLID
+}
+aucell_files_list2<-lapply(aucell_files_list2, rowMeans)
+single_aucell<-as.data.frame(aucell_files_list2)
+
+#Split the dataframe into phenotypes, scale expression for each phenotype and make an average
+setwd(data_directory)
+cell_annotations<-read.xlsx("nina_annotations.xlsx")
+cell_types<-split(cell_annotations,cell_annotations$TYPE)
+cell_types<-cell_types[c(2,3,1)]
+
+for (x in names(cell_types)){
+  cell_types[[x]]<-single_aucell[cell_types[[x]]$CELLID,]
+}
+
+cell_types<-lapply(cell_types,scale)
+cell_types<-lapply(cell_types,colMeans)
+single_average_aucell<-as.data.frame(cell_types)
+
+pdf(paste0(analysis_directory,'/figures/heatmap.pdf'),
+     width=15,
+     height=40)
+Heatmap(as.matrix(single_average_aucell),cluster_rows = F,cluster_columns = F)
+dev.off()
+
+#heatmap(as.matrix(single_average_aucell),Colv = NA, Rowv = NA, scale="none",col = bluered(100))
 ```
