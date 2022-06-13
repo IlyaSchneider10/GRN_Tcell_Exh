@@ -7,6 +7,12 @@ output: html_document
   
 #Download packages
 ```{r}
+#install.packages("LaplacesDemon")
+
+#install.packages(mousetrap)
+
+#install.packages("https://cran.r-project.org/src/contrib/Archive/randomForest/randomForest_4.6-14.tar.gz", repos=NULL, type="source")
+
 #install.packages("RColorBrewer")
 
 #install.packages("igraph")
@@ -46,10 +52,10 @@ output: html_document
 #   install.packages("BiocManager")
 #BiocManager::install("GEOquery")
 
-if (!require("BiocManager", quietly = TRUE))
-    install.packages("BiocManager")
+#if (!require("BiocManager", quietly = TRUE))
+    #install.packages("BiocManager")
 
-BiocManager::install("ComplexHeatmap")
+#BiocManager::install("ComplexHeatmap")
 ```
 
 #Load packages
@@ -71,6 +77,10 @@ library(gplots)
 library(igraph)
 library(RColorBrewer)
 library(ComplexHeatmap)
+library(randomForest)
+library(mousetrap)
+library(LaplacesDemon)
+library(devtools)
 ``` 
 
 #Direcrories
@@ -588,29 +598,185 @@ for (x in names(cell_types)){
 }
 
 aucell_scores<-aucell_scores[,cell_ids_ordered]
+aucell_scores<-aucell_scores[sort(rownames(aucell_scores)),]
 
 #Make a heatmap
 #heatmap(as.matrix(aucell_scores),Colv = NA, Rowv = NA, scale="none",col = bluered(100))
 
-aucell_scores<-t(scale(t(aucell_scores)))
-
-pdf(paste0(analysis_directory,'/figures/new_aucell_norm.pdf'),
+pdf(paste0(analysis_directory,'/figures/new_aucell_not_norm.pdf'),
      width=15,
      height=40)
 
 Heatmap(aucell_scores,cluster_rows = F,cluster_columns = F, column_labels = rep("",length(colnames(aucell_scores))), column_split = rep(names(cell_types), times = c(dim(cell_types[[1]])[1],dim(cell_types[[2]])[1],dim(cell_types[[3]])[1])))
 dev.off()
 
+aucell_scores_norm<-t(scale(t(aucell_scores)))
+
+pdf(paste0(analysis_directory,'/figures/new_aucell_norm.pdf'),
+     width=15,
+     height=40)
+
+Heatmap(aucell_scores_norm,cluster_rows = F,cluster_columns = F, column_labels = rep("",length(colnames(aucell_scores))), column_split = rep(names(cell_types), times = c(dim(cell_types[[1]])[1],dim(cell_types[[2]])[1],dim(cell_types[[3]])[1])))
+dev.off()
+
+#Test distributions of aucell scores for bimodality
 sum(apply(aucell_scores, 1, is.bimodal))/dim(aucell_scores)[1]
 sum(apply(aucell_scores, 1, bimodality_coefficient)>0.555)/dim(aucell_scores)[1]
+
+#Distributions of aucell scores within each cell_type
+aucell_scores_norm_cell_types<-cell_types_cell_ids
+for (x in names(cell_types_cell_ids)){
+  aucell_scores_norm_cell_types[[x]]<-aucell_scores_norm[,cell_types_cell_ids[[x]]]
+}
+
+aucell_scores_norm_cell_types<-lapply(aucell_scores_norm_cell_types, rowMeans)
+
+for (x in aucell_scores_norm_cell_types){
+  hist(x, breaks=50)
+}
 ```
+
+#Random Forest to identify TFs that explain the most cell phenotypes
+```{r eval=FALSE, echo=FALSE}
+#Create dataframe for the random forest
+random_forest_input<-rbind(rep(names(cell_types), times = c(dim(cell_types[[1]])[1],dim(cell_types[[2]])[1],dim(cell_types[[3]])[1])),aucell_scores)
+rownames(random_forest_input)[1]<-"cell_type"
+random_forest_input<-as.data.frame(t(random_forest_input))
+
+#Create a Random Forest model with default parameters
+aucell_model <- randomForest(as.factor(cell_type) ~ ., data = random_forest_input, importance = TRUE)
+aucell_model_importance<-as.data.frame(importance(aucell_model))
+aucell_model_importance<-aucell_model_importance[order(aucell_model_importance$MeanDecreaseAccuracy, decreasing = T),]
+
+#See which Tfs we keep for further interactions
+varImpPlot(aucell_model) #Top 30 ones are represented at htis graph so we keep them
+aucell_model_importance_top30<-head(rownames(aucell_model_importance),30)
+
+#Save the table
+write.csv(aucell_model_importance_top30 ,paste0(analysis_directory,"/aucell_model_importance_top30.csv"), row.names = F)
+```
+
+#Heatmaps of the top 30 genes from Random Forest
+```{r}
+#Open the table
+aucell_model_importance_top30<-read.csv(paste0(analysis_directory,"/aucell_model_importance_top30.csv"))[,1]
+
+#Normalized heatmap of these TFs
+Heatmap(aucell_scores_norm[aucell_model_importance_top30,],cluster_rows = F,cluster_columns = F, column_labels = rep("",length(colnames(aucell_scores))), column_split = rep(names(cell_types), times = c(dim(cell_types[[1]])[1],dim(cell_types[[2]])[1],dim(cell_types[[3]])[1])))
+
+#Heatmap of averages for each phenotype
+aucell_scores_norm_cell_types<-cell_types_cell_ids
+for (x in names(cell_types_cell_ids)){
+  aucell_scores_norm_cell_types[[x]]<-aucell_scores_norm[aucell_model_importance_top30,][,cell_types_cell_ids[[x]]]
+}
+
+aucell_scores_norm_cell_types_means<-lapply(aucell_scores_norm_cell_types, rowMeans)
+aucell_scores_norm_cell_types_means<-as.data.frame(aucell_scores_norm_cell_types_means)
+
+Heatmap(as.data.frame(aucell_scores_norm_cell_types_means),cluster_rows = F,cluster_columns = F, column_labels = names(cell_types))
+
+#Save the heatmap
+pdf(paste0(analysis_directory,'/figures/aucell_scores_norm_top30_cell_type_average.pdf'),
+     width=15,
+     height=10)
+
+Heatmap(aucell_scores_norm_cell_types_means,cluster_rows = F,cluster_columns = F, column_labels = names(cell_types))
+dev.off()
+```
+
+#Distributions of the top 30 genes from Random Forest
+```{r}
+#TF specific
+aucell_scores_norm_top30<-as.data.frame(aucell_scores_norm[aucell_model_importance_top30,])
+
+for (x in rownames(aucell_scores_norm_top30)){
+  hist(as.numeric(aucell_scores_norm_top30[x,]), breaks=50, main=x)
+}
+
+#Cell type specific (averages of each TF in a cell type)
+for (x in names(aucell_scores_norm_cell_types_means)){
+  hist(aucell_scores_norm_cell_types_means[[x]], breaks=15, main=x)
+}
+
+lapply(aucell_scores_norm_cell_types_means, is.bimodal)
+lapply(aucell_scores_norm_cell_types_means, bimodality_coefficient)>0.555
+
+cutoff_thresholds<-c(0,-0.1,0)
+names(cutoff_thresholds)<-names(aucell_scores_norm_cell_types_means)
+```
+
+#Binarize the top 30 TFs
+```{r}
+#Binarize dataframe with cell type averages
+#wrong
+aucell_scores_norm_cell_types_binarized<-aucell_scores_norm_cell_types_means
+for (x in colnames(aucell_scores_norm_cell_types_means)){
+  for (y in rownames(aucell_scores_norm_cell_types_means)){
+    if (y<cutoff_thresholds[x]){
+      aucell_scores_norm_cell_types_binarized[y,x]<-0
+    }else{aucell_scores_norm_cell_types_binarized[y,x]<-1}
+  }
+}
+
+#Binarize dataframe with all the cells
+```
+
+#Network of top 30 TFs from 
+```{r}
+#Select only interactions that are among top 30 TFs
+frequency_summary_top30<-frequency_summary[which(frequency_summary$TF %in% aucell_model_importance_top30),]
+frequency_summary_top30<-frequency_summary_top30[which(frequency_summary_top30$target %in% aucell_model_importance_top30),]
+vertices.df <- data.frame(unique(c(frequency_summary_top30$TF,frequency_summary_top30$target)))
+
+#Look how many of these interactions are confirmed by cistrome and frequency
+frequency_cistrome_summary_top30<-frequency_cistrome_summary[which(frequency_cistrome_summary$TF %in% aucell_model_importance_top30),]
+frequency_cistrome_summary_top30<-frequency_cistrome_summary_top30[which(frequency_cistrome_summary_top30$target %in% aucell_model_importance_top30),]
+
+#Look how many of our nodes overlap with the paper
+paper_top30_overlap<-paper_nodes[paper_nodes %in% unique(c(frequency_summary_top30$TF,frequency_summary_top30$target))]
+
+## Importing to igraph
+g <- graph_from_data_frame(d = frequency_summary_top30, directed = TRUE, vertices = vertices.df)
+V(g)$degree <- degree(g)
+#colrs <- c("gray50", "tomato")
+#V(g)$color <- colrs[V(g)$cistrome]
+
+## Select vertices with highest degrees
+v.degree <- degree(g)
+v.sorted <- sort(v.degree, decreasing = TRUE)
+v.sorted<-names(v.sorted)
+
+g.subset <- induced_subgraph(g, v = v.sorted)
+l <- layout_with_fr(g.subset)
+
+plot(g.subset, 
+     layout=l,
+     edge.arrow.size=0.1,
+     vertex.size=(V(g.subset)$degree/max(V(g.subset)$degree)*25),
+     vertex.label.cex=(V(g.subset)$degree/max(V(g.subset)$degree)*1.3),
+     edge.width=0.5,
+     vertex.frame.color='white')
+
+pdf(paste0(analysis_directory,'/figures/frequency_interactions_top30_plot.pdf'),
+     width=15,
+     height=20)
+plot(g.subset, 
+     layout=l,
+     edge.arrow.size=0.1,
+     vertex.size=(3.5*V(g.subset)$degree/max(V(g.subset)$degree)*4),
+     vertex.label.cex=(V(g.subset)$degree/max(V(g.subset)$degree)*1.5),
+     edge.width=0.5,
+     vertex.frame.color='white')
+dev.off()
+```
+
 
 #Analyze input expression of the genes we want to conduct AUCell on 
 ```{r}
 #Subselect the input_for_single_aucell
 frequency_regulons_targets<-unique(unlist(regulon_targets))
 
-input_for_single_aucell<-input_for_single_aucell[frequncy_regulons_targets[frequncy_regulons_targets %in% row.names(input_for_single_aucell)],]
+input_for_single_aucell<-input_for_single_aucell[frequency_regulons_targets[frequency_regulons_targets %in% row.names(input_for_single_aucell)],]
 
 cell_types_input_single_aucell<-cell_types
 for (x in names(cell_types)){
@@ -704,14 +870,12 @@ dev.off()
 
 #Analyze the distributions of scenic aucell scores
 ```{r}
-library(LaplacesDemon)
 bimodaltest_1<-c()
 for (x in names(aucell_files_frequency)){
   bimodaltest_1<-append(bimodaltest_1,sum(apply(aucell_files_frequency[[x]], 2, is.bimodal))/dim(aucell_files_frequency[[x]])[2])
 }
 mean_bimodaltest_1<-mean(bimodaltest_1)
 
-library(mousetrap)
 bimodaltest_2<-c()
 for (x in names(aucell_files_frequency)){
   bimodaltest_2<-append(bimodaltest_2,sum(apply(aucell_files_frequency[[x]], 2, bimodality_coefficient)>0.555)/dim(aucell_files_frequency[[x]])[2])
