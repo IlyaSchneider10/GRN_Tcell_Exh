@@ -651,9 +651,11 @@ aucell_model_importance<-aucell_model_importance[order(aucell_model_importance$M
 #See which Tfs we keep for further interactions
 varImpPlot(aucell_model) #Top 30 ones are represented at htis graph so we keep them
 aucell_model_importance_top30<-head(rownames(aucell_model_importance),30)
+aucell_model_importance_top100<-head(rownames(aucell_model_importance),100)
 
-#Save the table
+#Save the tables
 write.csv(aucell_model_importance_top30 ,paste0(analysis_directory,"/aucell_model_importance_top30.csv"), row.names = F)
+write.csv(aucell_model_importance_top100 ,paste0(analysis_directory,"/aucell_model_importance_top100.csv"), row.names = F)
 ```
 
 #Heatmaps of the top 30 genes from Random Forest
@@ -708,17 +710,49 @@ names(cutoff_thresholds)<-names(aucell_scores_norm_cell_types_means)
 #Binarize the top 30 TFs
 ```{r}
 #Binarize dataframe with cell type averages
-#wrong
-aucell_scores_norm_cell_types_binarized<-aucell_scores_norm_cell_types_means
-for (x in colnames(aucell_scores_norm_cell_types_means)){
-  for (y in rownames(aucell_scores_norm_cell_types_means)){
-    if (y<cutoff_thresholds[x]){
-      aucell_scores_norm_cell_types_binarized[y,x]<-0
-    }else{aucell_scores_norm_cell_types_binarized[y,x]<-1}
+aucell_scores_norm_cell_types_means_binarized<-aucell_scores_norm_cell_types_means
+for (y in colnames(aucell_scores_norm_cell_types_means_binarized)){
+  for (x in seq(nrow(aucell_scores_norm_cell_types_means_binarized))){
+    if(aucell_scores_norm_cell_types_means_binarized[x,y]>cutoff_thresholds[y]){
+      aucell_scores_norm_cell_types_means_binarized[x,y]<-1
+    } else {aucell_scores_norm_cell_types_means_binarized[x,y]<-0}
   }
 }
 
+Heatmap(as.data.frame(aucell_scores_norm_cell_types_means_binarized),cluster_rows = F,cluster_columns = F, column_labels = names(cell_types))
+
+pdf(paste0(analysis_directory,'/figures/aucell_scores_norm_top30_cell_type_average_binarized.pdf'),
+     width=15,
+     height=10)
+
+Heatmap(aucell_scores_norm_cell_types_means_binarized,cluster_rows = F,cluster_columns = F, column_labels = names(cell_types))
+dev.off()
+
+
 #Binarize dataframe with all the cells
+aucell_scores_norm_cell_types_binarized<-aucell_scores_norm_cell_types
+for (z in names(aucell_scores_norm_cell_types_binarized)){
+  t_f<-aucell_scores_norm_cell_types[[z]]>cutoff_thresholds[z]
+  for (x in seq(ncol(aucell_scores_norm_cell_types[[z]]))){
+    pos<-which(t_f[,x]==T)
+    aucell_scores_norm_cell_types_binarized[[z]][pos,x]<-1
+    aucell_scores_norm_cell_types_binarized[[z]][-pos,x]<-0
+  }
+}
+
+aucell_scores_norm_cell_types_binarized<-lapply(aucell_scores_norm_cell_types_binarized,function(x){rowSums(x)/ncol(x)})
+aucell_scores_norm_cell_types_binarized<-as.data.frame(aucell_scores_norm_cell_types_binarized)
+
+Heatmap(aucell_scores_norm_cell_types_binarized,cluster_rows = F,cluster_columns = F, column_labels = names(cell_types))
+
+pdf(paste0(analysis_directory,'/figures/aucell_scores_norm_top30_cell_type_binarized_percentage.pdf'),
+     width=15,
+     height=10)
+
+Heatmap(aucell_scores_norm_cell_types_means_binarized,cluster_rows = F,cluster_columns = F, column_labels = names(cell_types))
+dev.off()
+
+
 ```
 
 #Network of top 30 TFs from 
@@ -734,6 +768,7 @@ frequency_cistrome_summary_top30<-frequency_cistrome_summary_top30[which(frequen
 
 #Look how many of our nodes overlap with the paper
 paper_top30_overlap<-paper_nodes[paper_nodes %in% unique(c(frequency_summary_top30$TF,frequency_summary_top30$target))]
+
 
 ## Importing to igraph
 g <- graph_from_data_frame(d = frequency_summary_top30, directed = TRUE, vertices = vertices.df)
