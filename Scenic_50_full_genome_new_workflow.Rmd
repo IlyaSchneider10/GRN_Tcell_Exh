@@ -297,7 +297,7 @@ frequency_summary_nodes<-unique(c(unique(frequency_summary$target),unique(freque
 adj_files<-vector("list",length=n)
 names(adj_files)<-seq(n)
 for (x in seq(n)){
-  adj<-read.table(paste0(data_directory,"/SCENIC50/Output_full_genome/run_",as.character(x),"/adj.tsv"),sep='\t',header=T)
+  adj<-read.table(paste0(data_directory,"/SCENIC50/Output_full_genome_new_workflow/run_",as.character(x),"/adj.tsv"),sep='\t',header=T)
   adj_files[[as.character(x)]]<-adj
 }
 
@@ -333,26 +333,30 @@ for (x in seq(nrow(frequency_summary))){
         }
       }
   }
-  adj_frequency_files_importance_scores[[x]]<-imp
+  adj_frequency_files_importance_scores[[x]]<-mean(imp)
 }
 
-#Remove the scenic runs list levels and unite all the targets of each TF as one entry
-regulon_targets<-vector("list", length(frequency_summary_nodes))
-names(regulon_targets)<-frequency_summary_nodes
-for (y in frequency_summary_nodes){
-  a<-list()
-  for (x in names(frequency_regulons)){
-    if (sum(y==names(frequency_regulons[[x]]))!=0){
-    pos<-which(names(frequency_regulons[[x]])==y)
-    a[[x]]<-frequency_regulons[[x]][[pos]]
-    }
+#Add IS to the frequency_summary
+frequency_summary["IS"]<-unlist(adj_frequency_files_importance_scores)*frequency_summary$frequency
+
+#Split frequency_summary by targets
+frequency_summary_targets<-split(frequency_summary,frequency_summary$target)
+
+#Calculate NIS
+all_nis<-c()
+for (x in names(frequency_summary_targets)){
+  nis<-c()
+  for (y in seq(nrow(frequency_summary_targets[[x]]))){
+    score<-frequency_summary_targets[[x]]$IS[y]/sum(frequency_summary_targets[[x]]$IS)
+    nis<-append(nis,score)
   }
-  regulon_targets[[y]]<-a
+  all_nis<-append(all_nis,nis)
 }
 
-#Calculate average importance score for each interaction along scenic runs
+frequency_summary["NIS"]<-all_nis
 
-#Compute NIS
+#Save the table
+write.csv(frequency_summary,paste0(analysis_directory,"/frequency_summary.csv"), row.names = F)
 ```
 
 #Select best peaks for cistrome
@@ -822,6 +826,9 @@ dev.off()
 
 #Network of top 30 TFs from random forest 
 ```{r}
+#Open frequency_summary
+frequency_summary<-read.csv(paste0(analysis_directory,"/frequency_summary.csv"))
+
 #Select only interactions that are among top 30 TFs
 frequency_summary_top30<-frequency_summary[which(frequency_summary$TF %in% aucell_model_importance_top30),]
 frequency_summary_top30<-frequency_summary_top30[which(frequency_summary_top30$target %in% aucell_model_importance_top30),]
