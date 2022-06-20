@@ -1262,12 +1262,12 @@ legend(x=-1, y=-0.5, c("Exhausted","Memory", "Transition"), pch=21,
 dev.off()
 
 #Louvain_clustering
-louvain_clustering_res_0.7<-cluster_louvain(as.undirected(g),weight=frequency_summary_top100$NIS, resolution = 0.7)
+louvain_clustering_res_0.5<-cluster_louvain(as.undirected(g),weight=frequency_summary_top100$NIS, resolution = 0.5)
 
 #Get the communities
-louvain_clustering_res_0.7_communities<-louvain_clustering_res_0.7$membership
-names(louvain_clustering_res_0.7_communities)<-louvain_clustering_res_0.7$names
-louvain_clustering_res_0.7_communities<-split(names(louvain_clustering_res_0.7_communities),louvain_clustering_res_0.7_communities)
+louvain_clustering_res_0.5_communities<-louvain_clustering_res_0.5$membership
+names(louvain_clustering_res_0.5_communities)<-louvain_clustering_res_0.5$names
+louvain_clustering_res_0.5_communities<-split(names(louvain_clustering_res_0.5_communities),louvain_clustering_res_0.5_communities)
 
 #Plot the communities
 pdf(paste0(analysis_directory,'/figures/frequency_90_interactions_top100_communities_plot.pdf'),
@@ -1287,10 +1287,10 @@ legend(x=-1, y=-0.5, c("Exhausted","Memory", "Transition"), pch=21,
 dev.off()
 
 #Plot each community
-for (x in names(louvain_clustering_res_0.7_communities)){
+for (x in names(louvain_clustering_res_0.5_communities)){
    
-  frequency_summary_com<-frequency_summary[which(frequency_summary$TF %in% louvain_clustering_res_0.7_communities[[x]]),]
-  frequency_summary_com<-frequency_summary_com[which(frequency_summary_com$target %in% louvain_clustering_res_0.7_communities[[x]]),]
+  frequency_summary_com<-frequency_summary[which(frequency_summary$TF %in% louvain_clustering_res_0.5_communities[[x]]),]
+  frequency_summary_com<-frequency_summary_com[which(frequency_summary_com$target %in% louvain_clustering_res_0.5_communities[[x]]),]
   frequency_summary_com<-frequency_summary_com[which(frequency_summary_com$frequency>=45),]
   frequency_summary_com<-frequency_summary_com[,c(1,2,6)]
   
@@ -1329,7 +1329,7 @@ for (x in names(louvain_clustering_res_0.7_communities)){
   g <- induced_subgraph(g, v = v.sorted)
   l <- layout_with_fr(g)
   
-  pdf(paste0(analysis_directory,"/figures/louvain_clustering_res_0.7_communities_90/community_",as.character(x) ,".pdf"),
+  pdf(paste0(analysis_directory,"/figures/louvain_clustering_res_0.5_communities_90/community_",as.character(x) ,".pdf"),
        width=15,
        height=15)
   plot(g, 
@@ -1379,7 +1379,7 @@ for (x in seq(nrow(cytoscape))){
   
   pos2<-which(cytoscape_nodes$nodes==cytoscape$target[x])
   cytoscape[x,"target_most_expressed_in"]<-cytoscape_nodes[pos2,"most_expressed_in"]
-  cytoscape[x,"target_group"]<-cytoscape_nodes[pos,"group"]
+  cytoscape[x,"target_group"]<-cytoscape_nodes[pos2,"group"]
 }
 
 #Reorder columns
@@ -1390,118 +1390,56 @@ cytoscape["target_group"]<-as.integer(cytoscape$target_group)
 
 #Save the table
 setwd(analysis_directory)
-write.table(cytoscape, file='cytoscape.tsv', quote=FALSE, sep='\t', row.names = F)
+write.table(cytoscape, file='cytoscape_05.tsv', quote=FALSE, sep='\t', row.names = F)
 ```
 
-#Analyze input expression of the genes we want to conduct AUCell on 
+#Keep only nodes and interactions from paper
 ```{r}
-#Subselect the input_for_single_aucell
-frequency_regulons_targets<-unique(unlist(regulon_targets))
+#Fuse JUN and FOS nodes
+frequency_summary_top100["TF"]<-gsub("JUNB|JUND|JUN|FOSB|FOS","JUN-FOS",frequency_summary_top100$TF)
+frequency_summary_top100["target"]<-gsub("JUNB|JUND|JUN|FOSB|FOS","JUN-FOS",frequency_summary_top100$target)
 
-input_for_single_aucell<-input_for_single_aucell[frequency_regulons_targets[frequency_regulons_targets %in% row.names(input_for_single_aucell)],]
+paper_top100_overlap<-unique(gsub("JUN|FOS","JUN-FOS",paper_top100_overlap))
 
-cell_types_input_single_aucell<-cell_types
-for (x in names(cell_types)){
-  cell_types_input_single_aucell[[x]]<-input_for_single_aucell[,cell_types[[x]]$CELLID]
-}
 
-cell_types_scaled<-cell_types_input_single_aucell
-for(x in names(cell_types_input_single_aucell)){
-  cell_types_scaled[[x]]<-t(scale(t(cell_types_input_single_aucell[[x]])))
-}
+#Create dataframe with only paper overlaps
+frequency_summary_top100_paper_tf<-frequency_summary_top100[frequency_summary_top100$TF %in% paper_top100_overlap,]
+frequency_summary_top100_paper_target<-frequency_summary_top100[!frequency_summary_top100$TF %in% paper_top100_overlap,][frequency_summary_top100[!frequency_summary_top100$TF %in% paper_top100_overlap,]$target %in% paper_top100_overlap,]
 
-cell_types_scaled_avrg<-lapply(cell_types_scaled,rowMeans)
-cell_types_avrg<-as.data.frame(cell_types_scaled_avrg)
+frequency_summary_top100_paper<-rbind(frequency_summary_top100_paper_tf,frequency_summary_top100_paper_target)
 
-heatmap(as.matrix(cell_types_avrg),Colv = NA, Rowv = NA, scale="none",col = bluered(100))
-```
-
-#Another approach for Aucell binarizing
-```{r}
-#Open all Aucell files from Scenic
-aucell_files<-vector("list",length=n)
-names(aucell_files)<-seq(n)
-for (x in seq(n)){
-  aucell_files[[as.character(x)]]<-read.csv(paste0(data_directory,"/SCENIC50/Output_full_genome_new_workflow/run_",as.character(x),"/aucell.csv"),header=T,row.names = 1)
-  aucell_files[[as.character(x)]]
-}
-
-#Remove "..." from colnames
-for (x in names(aucell_files)){
-  colnames(aucell_files[[x]])<-gsub(colnames(aucell_files[[x]]),pattern="[...]",replacement="")
-}
-
-#Keep only relevant columns and rows
-aucell_files_frequency<-aucell_files
-for (x in names(aucell_files)){
-  aucell_files_frequency[[x]]<-aucell_files[[x]][,colnames(aucell_files[[x]]) %in% frequency_summary_nodes]
-}
-
-#Change fromat from dataframes to a nested list
-aucell_files_list<-vector("list", length(aucell_files_frequency))
-names(aucell_files_list)<-names(aucell_files_frequency)
-for (x in names(aucell_files_frequency)){
-  sublist<-vector("list",length = dim(aucell_files_frequency[[x]])[2])
-  names(sublist)<-colnames(aucell_files_frequency[[x]])
-  for(y in colnames(aucell_files_frequency[[x]])){
-    sublist[[y]]<-aucell_files_frequency[[x]][,y]
+#Remove self regulation
+remove<-c()
+for (x in seq(nrow(frequency_summary_top100_paper))){
+  if(frequency_summary_top100_paper$TF[x]==frequency_summary_top100_paper$target[x]){
+    remove<-append(remove,x)
   }
-  aucell_files_list[[x]]<-sublist
 }
 
-#Remove the scenic runs list levels and unite all genes as one entry
-aucell_files_list2<-vector("list", length(frequency_summary_nodes))
-names(aucell_files_list2)<-frequency_summary_nodes
-for (y in frequency_summary_nodes){
-  a<-list()
-  for (x in names(aucell_files_list)){
-    if (sum(y==names(aucell_files_list[[x]]))!=0){
-    pos<-which(names(aucell_files_list[[x]])==y)
-    a[[x]]<-aucell_files_list[[x]][[pos]]
-    }
-  }
-  aucell_files_list2[[y]]<-a
+frequency_summary_top100_paper<-frequency_summary_top100_paper[-remove,]
+frequency_summary_top100_paper<-frequency_summary_top100_paper[order(frequency_summary_top100_paper$TF),]
+
+#Create all interactions
+frequency_summary_top100_paper_interactions<-c()
+for(x in seq(nrow(frequency_summary_top100_paper))){
+    frequency_summary_top100_paper_interactions<-append(frequency_summary_top100_paper_interactions,paste0(frequency_summary_top100_paper$TF[x],"->",frequency_summary_top100_paper$target[x]))
 }
 
-#Convert entry for each TF into a dataframe, calculate average expression along scenic runs and combine results in a single dataframe
-aucell_files_list2<-lapply(aucell_files_list2, as.data.frame)
-for (x in names(aucell_files_list2)){
-  rownames(aucell_files_list2[[x]])<-cell_annotations$CELLID
-}
-aucell_files_list2<-lapply(aucell_files_list2, rowMeans)
-single_aucell<-as.data.frame(aucell_files_list2)
+#Find duplicates, remove them and assign new NIS
+duplicate_interactions<-unique(frequency_summary_top100_paper_interactions[duplicated(frequency_summary_top100_paper_interactions)])
 
-#Split the dataframe into phenotypes, scale expression for each phenotype and make an average
-single_aucell_cell_types<-cell_types
-for (x in names(cell_types)){
-  single_aucell_cell_types[[x]]<-single_aucell[cell_types[[x]]$CELLID,]
+new_nis<-vector("list",length(duplicate_interactions))
+names(new_nis)<-duplicate_interactions
+for(x in duplicate_interactions){
+  pos<-grep(x,frequency_summary_top100_paper_interactions)
+  new_nis[[x]]<-mean(frequency_summary_top100_paper[pos,]$NIS)
 }
 
-single_aucell_cell_types<-lapply(single_aucell_cell_types,scale)
-single_aucell_cell_types<-lapply(single_aucell_cell_types,colMeans)
-single_average_aucell<-as.data.frame(single_aucell_cell_types)
+frequency_summary_top100_paper_interactions_nis<-frequency_summary_top100_paper$NIS
+names(frequency_summary_top100_paper_interactions_nis)<-frequency_summary_top100_paper_interactions
+frequency_summary_top100_paper_interactions_nis<-frequency_summary_top100_paper_interactions_nis[-which(duplicated(frequency_summary_top100_paper_interactions))]
+frequency_summary_top100_paper_interactions_nis[duplicate_interactions]<-unlist(new_nis)
 
-pdf(paste0(analysis_directory,'/figures/heatmap_average_aucell.pdf'),
-     width=15,
-     height=40)
-Heatmap(as.matrix(single_average_aucell),cluster_rows = F,cluster_columns = F)
-dev.off()
-
-#heatmap(as.matrix(single_average_aucell),Colv = NA, Rowv = NA, scale="none",col = bluered(100))
+frequency_summary_top100_paper<-frequency_summary_top100_paper[-which(duplicated(frequency_summary_top100_paper_interactions)),]
+frequency_summary_top100_paper["NIS"]<-frequency_summary_top100_paper_interactions_nis
 ```
-
-#Analyze the distributions of scenic aucell scores
-```{r}
-bimodaltest_1<-c()
-for (x in names(aucell_files_frequency)){
-  bimodaltest_1<-append(bimodaltest_1,sum(apply(aucell_files_frequency[[x]], 2, is.bimodal))/dim(aucell_files_frequency[[x]])[2])
-}
-mean_bimodaltest_1<-mean(bimodaltest_1)
-
-bimodaltest_2<-c()
-for (x in names(aucell_files_frequency)){
-  bimodaltest_2<-append(bimodaltest_2,sum(apply(aucell_files_frequency[[x]], 2, bimodality_coefficient)>0.555)/dim(aucell_files_frequency[[x]])[2])
-}
-mean_bimodaltest_2<-mean(bimodaltest_2)
-```
-
