@@ -1346,6 +1346,53 @@ for (x in names(louvain_clustering_res_0.7_communities)){
 }
 ```
 
+#Create tables for cytoscape
+```{r}
+#Nodes table
+cytoscape_nodes<-vertices.df
+colnames(cytoscape_nodes)[1]<-"nodes"
+cytoscape_nodes["group"]<-0
+
+for (x in names(louvain_clustering_res_0.7_communities)){
+  for (y in louvain_clustering_res_0.7_communities[[x]]){
+    pos<-which(cytoscape_nodes$nodes==y)
+    cytoscape_nodes[pos,"group"]<-x
+  }
+}
+
+#Interactions table
+cytoscape_interactions<-frequency_summary_top100
+
+#Merge both tables
+cytoscape<-cytoscape_interactions
+
+#Get information for TFs and targets
+cytoscape["TF_most_expressed_in"]<-"none"
+cytoscape["TF_group"]<-0
+cytoscape["target_most_expressed_in"]<-"none"
+cytoscape["target_group"]<-0
+
+for (x in seq(nrow(cytoscape))){
+  pos<-which(cytoscape_nodes$nodes==cytoscape$TF[x])
+  cytoscape[x,"TF_most_expressed_in"]<-cytoscape_nodes[pos,"most_expressed_in"]
+  cytoscape[x,"TF_group"]<-cytoscape_nodes[pos,"group"]
+  
+  pos2<-which(cytoscape_nodes$nodes==cytoscape$target[x])
+  cytoscape[x,"target_most_expressed_in"]<-cytoscape_nodes[pos2,"most_expressed_in"]
+  cytoscape[x,"target_group"]<-cytoscape_nodes[pos,"group"]
+}
+
+#Reorder columns
+cytoscape<-cytoscape[,c(1,5,6,2,7,8,3,4)]
+
+cytoscape["TF_group"]<-as.integer(cytoscape$TF_group)
+cytoscape["target_group"]<-as.integer(cytoscape$target_group)
+
+#Save the table
+setwd(analysis_directory)
+write.table(cytoscape, file='cytoscape.tsv', quote=FALSE, sep='\t', row.names = F)
+```
+
 #Analyze input expression of the genes we want to conduct AUCell on 
 ```{r}
 #Subselect the input_for_single_aucell
