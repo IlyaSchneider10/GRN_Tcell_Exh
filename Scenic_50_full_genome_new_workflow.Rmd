@@ -1201,3 +1201,97 @@ cytoscape_paper_overlap<-cytoscape_paper_overlap[,c(1,5,6,2,7,8,3,4)]
 setwd(analysis_directory)
 write.table(cytoscape_paper_overlap, file='cytoscape_paper_overlap.tsv', quote=FALSE, sep='\t', row.names = F)
 ```
+
+#Format Bolouri paper interactions table
+```{r}
+#Open file
+setwd(data_directory)
+bolouri_paper_interactions<-read.delim("Bolouri_paper_interactions.txt")
+colnames(bolouri_paper_interactions)[1:2]<-c("TF","target")
+
+#Unify nomenclature
+bolouri_paper_interactions["TF"]<-gsub("AP1","JUN-FOS",bolouri_paper_interactions$TF)
+bolouri_paper_interactions["TF"]<-gsub("BLIMP-1","PRDM1",bolouri_paper_interactions$TF)
+bolouri_paper_interactions["TF"]<-gsub("NFkB","NFKB1",bolouri_paper_interactions$TF)
+bolouri_paper_interactions["TF"]<-gsub("EZH2/PRC2","EZH2",bolouri_paper_interactions$TF)
+
+bolouri_paper_interactions["target"]<-gsub("AP1","JUN-FOS",bolouri_paper_interactions$target)
+bolouri_paper_interactions["target"]<-gsub("BLIMP-1","PRDM1",bolouri_paper_interactions$target)
+bolouri_paper_interactions["target"]<-gsub("NFkB","NFKB1",bolouri_paper_interactions$target)
+bolouri_paper_interactions["target"]<-gsub("EZH2/PRC2","EZH2",bolouri_paper_interactions$target)
+
+#Substitute multiple TFs/targets
+bolouri_multiple_tf_pos<-grep(":",bolouri_paper_interactions$TF)
+bolouri_multiple_tf<-bolouri_paper_interactions$TF[bolouri_multiple_tf_pos[!duplicated(bolouri_paper_interactions$TF[bolouri_multiple_tf_pos])]]
+
+bolouri_multiple_target_pos<-grep(":",bolouri_paper_interactions$target)
+bolouri_multiple_target<-bolouri_paper_interactions$target[bolouri_multiple_target_pos[!duplicated(bolouri_paper_interactions$target[bolouri_multiple_target_pos])]]
+
+bolouri_multiple_tf==bolouri_multiple_target
+
+bolouri_multiple<-bolouri_multiple_tf
+
+remove_multiple_bolouri_paper_entry<-function(str){
+  one<-sub(":.*", "", str)
+  two<-str_match_all(str, ":\\s*(.*?)\\s*:")[[1]][,2]
+  three<-sub(".*:", "", str)
+  four<-gsub(paste0(":|",one,"|",two,"|",three,"|"),"",str)
+  
+  res<-c(one, two, three,four)
+}
+
+bolouri_multiple_sub<-remove_multiple_bolouri_paper_entry(bolouri_multiple)
+
+new_one<-data.frame(rep(bolouri_multiple_sub,length(bolouri_multiple_tf_pos)),rep(bolouri_paper_interactions[bolouri_multiple_tf_pos,]$target,length(bolouri_multiple_sub)))
+colnames(new_one)<-colnames(bolouri_paper_interactions)[1:2]
+new_one["Interaction"]<-rep(bolouri_paper_interactions[bolouri_multiple_tf_pos,]$Interaction,length(bolouri_multiple_sub))
+
+new_two_targets<-c()
+for (x in bolouri_multiple_sub){
+  r<-rep(x,length(bolouri_multiple_target_pos))
+  new_two_targets<-append(new_two_targets,r)
+}
+new_two<-data.frame(rep(bolouri_paper_interactions[bolouri_multiple_target_pos,]$TF,length(bolouri_multiple_sub)),new_two_targets)
+colnames(new_two)<-colnames(bolouri_paper_interactions)[1:2]
+new_two["Interaction"]<-rep(bolouri_paper_interactions[bolouri_multiple_target_pos,]$Interaction,length(bolouri_multiple_sub))
+
+bolouri_new_entries<-rbind(new_one,new_two)
+
+bolouri_paper_interactions<-bolouri_paper_interactions[-c(bolouri_multiple_tf_pos,bolouri_multiple_target_pos),]
+bolouri_paper_interactions<-rbind(bolouri_paper_interactions,bolouri_new_entries)
+
+#Select only interactions that have as TF or target an overlapping node
+bolouri_paper_interactions_overlap<-rbind(bolouri_paper_interactions[which(bolouri_paper_interactions$TF %in% paper_top100_overlap),],bolouri_paper_interactions[which(bolouri_paper_interactions$target %in% paper_top100_overlap),])
+
+#Remove self regulation
+remove<-c()
+for (x in seq(nrow(bolouri_paper_interactions_overlap))){
+  if(bolouri_paper_interactions_overlap$TF[x]==bolouri_paper_interactions_overlap$target[x]){
+    remove<-append(remove,x)
+  }
+}
+
+bolouri_paper_interactions_overlap<-bolouri_paper_interactions_overlap[-remove,]
+
+#Create all interactions
+bolouri_paper_interactions_overlap_interactions<-c()
+for(x in seq(nrow(bolouri_paper_interactions_overlap))){
+    bolouri_paper_interactions_overlap_interactions<-append(bolouri_paper_interactions_overlap_interactions,paste0(bolouri_paper_interactions_overlap$TF[x],"->",bolouri_paper_interactions_overlap$target[x]))
+}
+
+#Remove duplicates
+bolouri_paper_interactions_overlap<-bolouri_paper_interactions_overlap[-which(duplicated(bolouri_paper_interactions_overlap_interactions)),]
+
+#Look for further nomenclature differences
+tf_nomenclature<-names(paper_substitutions)[names(paper_substitutions) %in% bolouri_paper_interactions_overlap$TF]
+
+unlist(paper_substitutions[tf_nomenclature]) %in% vertices.df_paper$nodes 
+
+names(paper_substitutions)[names(paper_substitutions) %in% bolouri_paper_interactions_overlap$target]
+```
+
+#Create new cytoscape df to represent overlap between Bolouri paper and 82 RF TF network
+```{r}
+
+```
+
