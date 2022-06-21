@@ -1085,7 +1085,7 @@ setwd(analysis_directory)
 write.table(cytoscape, file='cytoscape_05.tsv', quote=FALSE, sep='\t', row.names = F)
 ```
 
-#Keep only nodes and interactions from paper
+#Keep only nodes and interactions from paper and create cytoscape df for them
 ```{r}
 #Fuse JUN and FOS nodes
 frequency_summary_top100["TF"]<-gsub("JUNB|JUND|JUN|FOSB|FOS","JUN-FOS",frequency_summary_top100$TF)
@@ -1136,4 +1136,68 @@ frequency_summary_top100_paper<-frequency_summary_top100_paper[-which(duplicated
 frequency_summary_top100_paper["NIS"]<-frequency_summary_top100_paper_interactions_nis
 
 #Introduce lost cistrome confirmed interactions
+frequency_cistrome_summary_top100_paper<-frequency_cistrome_summary_top100
+frequency_cistrome_summary_top100_paper["TF"]<-gsub("JUNB|JUND|JUN|FOSB|FOS","JUN-FOS",frequency_cistrome_summary_top100_paper$TF)
+frequency_cistrome_summary_top100_paper["target"]<-gsub("JUNB|JUND|JUN|FOSB|FOS","JUN-FOS",frequency_cistrome_summary_top100_paper$target)
+
+cistrome_paper<-c()
+for (x in seq(nrow(frequency_cistrome_summary_top100_paper))){
+  tfs<-which(frequency_summary_top100_paper$TF==frequency_cistrome_summary_top100_paper$TF[x])
+  targets<-which(frequency_summary_top100_paper$target==frequency_cistrome_summary_top100_paper$target[x])
+  pos<-tfs[tfs %in% targets]
+  if(length(pos)!=0){
+    cistrome_paper<-append(cistrome_paper,pos)
+  }
+}
+
+frequency_summary_top100_paper[cistrome_paper,"cistrome_filter"]<-T
+
+#Modify JUN-FOS vertices to get "most_expressed in" right
+vertices.df_paper<-vertices.df
+vertices.df_paper[,1]<-gsub("JUNB|JUND|JUN|FOSB|FOS","JUN-FOS",vertices.df_paper[,1])
+vertices.df_paper<-vertices.df_paper[-which(duplicated(vertices.df_paper[,1])),]
+
+vertices.df_paper<-vertices.df_paper[vertices.df_paper[,1] %in% unique(c(frequency_summary_top100_paper$TF,frequency_summary_top100_paper$target)), ]
+
+#Compute Louvain clustering and add group number to the vertices.df_paper
+g_paper_overlap <- graph_from_data_frame(d = frequency_summary_top100_paper, directed = F, vertices = vertices.df_paper)
+
+louvain_clustering_paper<-cluster_louvain(g_paper_overlap,weight=frequency_summary_top100_paper$NIS, resolution = 0.2)
+louvain_clustering_paper_communities<-louvain_clustering_paper$membership
+names(louvain_clustering_paper_communities)<-louvain_clustering_paper$names
+louvain_clustering_paper_communities<-split(names(louvain_clustering_paper_communities),louvain_clustering_paper_communities)
+
+colnames(vertices.df_paper)[1]<-"nodes"
+vertices.df_paper["group"]<-0
+
+for (x in names(louvain_clustering_paper_communities)){
+  for (y in louvain_clustering_paper_communities[[x]]){
+    pos<-which(vertices.df_paper$nodes==y)
+    vertices.df_paper[pos,"group"]<-x
+  }
+}
+
+#Add TF and target missing information
+cytoscape_paper_overlap<-frequency_summary_top100_paper
+
+cytoscape_paper_overlap["TF_most_expressed_in"]<-"none"
+cytoscape_paper_overlap["TF_group"]<-0
+cytoscape_paper_overlap["target_most_expressed_in"]<-"none"
+cytoscape_paper_overlap["target_group"]<-0
+
+for (x in seq(nrow(cytoscape_paper_overlap))){
+  pos<-which(vertices.df_paper$nodes==cytoscape_paper_overlap$TF[x])
+  cytoscape_paper_overlap[x,"TF_most_expressed_in"]<-cytoscape_nodes[pos,"most_expressed_in"]
+  cytoscape_paper_overlap[x,"TF_group"]<-vertices.df_paper[pos,"group"]
+  
+  pos2<-which(vertices.df_paper$nodes==cytoscape_paper_overlap$target[x])
+  cytoscape_paper_overlap[x,"target_most_expressed_in"]<-vertices.df_paper[pos2,"most_expressed_in"]
+  cytoscape_paper_overlap[x,"target_group"]<-vertices.df_paper[pos2,"group"]
+}
+
+cytoscape_paper_overlap<-cytoscape_paper_overlap[,c(1,5,6,2,7,8,3,4)]
+
+#Save the table
+setwd(analysis_directory)
+write.table(cytoscape_paper_overlap, file='cytoscape_paper_overlap.tsv', quote=FALSE, sep='\t', row.names = F)
 ```
