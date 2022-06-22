@@ -1041,9 +1041,9 @@ for (x in names(louvain_clustering_res_0.5_communities)){
 #Create table for cytoscape
 ```{r echo=FALSE, eval=FALSE}
 #Nodes table
-cytoscape_nodes<-vertices.df
+<-vertices.df
 colnames(cytoscape_nodes)[1]<-"nodes"
-cytoscape_nodes["group"]<-0
+["group"]<-0
 
 for (x in names(louvain_clustering_res_0.5_communities)){
   for (y in louvain_clustering_res_0.5_communities[[x]]){
@@ -1225,7 +1225,6 @@ for (x in seq(nrow(cytoscape_paper_overlap))){
   pos2<-which(vertices.df_paper$nodes==cytoscape_paper_overlap$target[x])
   cytoscape_paper_overlap[x,"target_most_expressed_in"]<-vertices.df_paper[pos2,"most_expressed_in"]
   cytoscape_paper_overlap[x,"target_group"]<-vertices.df_paper[pos2,"group"]
-
 }
 
 cytoscape_paper_overlap<-cytoscape_paper_overlap[,c(1,5,6,2,7,8,3,4)]
@@ -1325,7 +1324,213 @@ names(paper_substitutions)[names(paper_substitutions) %in% bolouri_paper_interac
 
 #Create new cytoscape df to represent overlap between Bolouri paper and 82 RF TF network
 ```{r}
-cytoscape_paper_overlap
-bolouri_paper_interactions_overlap
+#Remove importance column and rows that dont vontain TFs
+bolouri_paper_interactions_overlap<-bolouri_paper_interactions_overlap[,c(1,2)]
+bolouri_paper_interactions_overlap<-bolouri_paper_interactions_overlap[-c(14,15,16),]
+bolouri_paper_interactions_overlap<-bolouri_paper_interactions_overlap[order(bolouri_paper_interactions_overlap$TF),]
+rownames(bolouri_paper_interactions_overlap)<-seq(nrow(bolouri_paper_interactions_overlap))
+rownames(cytoscape_paper_overlap)<-seq(nrow(cytoscape_paper_overlap))
+
+#Split the bolouri_paper_interactions_overlap in interactions that we already have in our network and the new ones
+common_interactions<-c()
+for (x in seq(nrow(cytoscape_paper_overlap))){
+  tfs<-which(bolouri_paper_interactions_overlap$TF==cytoscape_paper_overlap$TF[x])
+  targets<-which(bolouri_paper_interactions_overlap$target==cytoscape_paper_overlap$target[x])
+  pos<-which(tfs %in% targets)
+  if(length(pos!=0)){
+    common_interactions<-append(common_interactions,x)
+  }
+}
+
+#Mark the common interaction
+bolouri_RF_fusion<-cytoscape_paper_overlap
+bolouri_RF_fusion["present_in_both"]<-F
+bolouri_RF_fusion[common_interactions,"present_in_both"]<-T
+bolouri_RF_fusion["RF"]<-T
+bolouri_RF_fusion["paper"]<-F
+
+tfs<-which(bolouri_paper_interactions_overlap$TF==cytoscape_paper_overlap$TF[common_interactions])
+targets<-which(bolouri_paper_interactions_overlap$target==cytoscape_paper_overlap$target[common_interactions])
+pos<-which(tfs %in% targets)
+
+bolouri_paper_unique_interactions<-bolouri_paper_interactions_overlap
+bolouri_paper_unique_interactions<-bolouri_paper_unique_interactions[-tfs[pos],]
+bolouri_paper_unique_interactions["present_in_both"]<-F
+bolouri_paper_unique_interactions["RF"]<-F
+bolouri_paper_unique_interactions["paper"]<-T
+bolouri_paper_unique_interactions["NIS"]<-1
+bolouri_paper_unique_interactions["cistrome_filter"]<-F
+
+
+#Assign "most_expressed_in" column
+vertices.df_fusion<-vertices.df_paper
+rownames(vertices.df_fusion)<-seq(nrow(vertices.df_fusion))
+
+nodes_to_add<-unique(c(bolouri_paper_unique_interactions$TF,bolouri_paper_unique_interactions$target))[!unique(c(bolouri_paper_unique_interactions$TF,bolouri_paper_unique_interactions$target)) %in% vertices.df_fusion$nodes]
+new_rows<-gsub(" ",",",seq(nrow(vertices.df_fusion)+1,nrow(vertices.df_fusion)+length(nodes_to_add)))
+vertices.df_fusion[new_rows,]<-nodes_to_add
+nodes_to_add_expr<-c("mem","mem","exh","mem","rec","mem","exh","exh","mem","mem","exh","exh","exh","exh","mem","mem","mem","rec","rec","rec","exh","rec","rec","rec","rec","mem")
+vertices.df_fusion[new_rows,"most_expressed_in"]<-nodes_to_add_expr
+
+bolouri_paper_unique_interactions["TF_most_expressed_in"]<-"none"
+bolouri_paper_unique_interactions["target_most_expressed_in"]<-"none"
+
+for (x in seq(nrow(bolouri_paper_unique_interactions))){
+  pos<-which(vertices.df_fusion$nodes==bolouri_paper_unique_interactions$TF[x])
+  bolouri_paper_unique_interactions[x,"TF_most_expressed_in"]<-vertices.df_fusion[pos,"most_expressed_in"]
+  
+  pos2<-which(vertices.df_fusion$nodes==bolouri_paper_unique_interactions$target[x])
+  bolouri_paper_unique_interactions[x,"target_most_expressed_in"]<-vertices.df_fusion[pos2,"most_expressed_in"]
+}
+
+#Create igraph to represent the combined network
+igraph_fusion<-rbind(bolouri_RF_fusion[,c(1,4,7)],bolouri_paper_unique_interactions[,c(1,2,6)])
+
+g_fusion <- graph_from_data_frame(d = igraph_fusion, directed = T, vertices = vertices.df_fusion)
+
+V(g_fusion)$degree <- degree(g_fusion)
+
+# Select vertices with highest degrees
+v.degree <- degree(g_fusion)
+v.sorted <- sort(v.degree, decreasing = TRUE)
+v.sorted<-names(v.sorted)
+
+#Color nodes according to their highest expression
+colrs <- c("#FB8072","#80B1D3","#EDD94C","#BEBADA")
+my_color<-colrs[as.numeric(as.factor(V(g_fusion)$most_expressed_in))]
+
+#Add weight to edges
+E(g_fusion)$weight<-igraph_fusion$NIS
+
+g_fusion<- induced_subgraph(g_fusion, v = v.sorted)
+l <- layout_with_fr(g_fusion)
+
+pdf(paste0(analysis_directory,"/figures/bolouri_RF_fusion.pdf"),
+     width=15,
+     height=15)
+plot(g_fusion, 
+     layout=l,
+     edge.arrow.size=0.25,
+     vertex.size=5,
+     vertex.label.cex=0.4,
+     vertex.color=my_color,
+     edge.width=E(g_fusion)$weight*3,
+     vertex.frame.color='white')
+legend(x=-1, y=-0.5, c("Exhausted","Memory","Receptors","Transition"), pch=21,
+       col="#777777", pt.bg=colrs, pt.cex=2, cex=1.5, bty="n", ncol=1)
+dev.off()
+
+#Louvain clustering
+louvain_clustering_fusion<-cluster_louvain(as.undirected(g_fusion),weight=igraph_fusion$NIS, resolution =0.7)
+louvain_clustering_fusion_communities<-louvain_clustering_fusion$membership
+names(louvain_clustering_fusion_communities)<-louvain_clustering_fusion$names
+louvain_clustering_fusion_communities<-split(names(louvain_clustering_fusion_communities),louvain_clustering_fusion_communities)
+
+vertices.df_fusion["group"]<-0
+
+for (x in names(louvain_clustering_fusion_communities)){
+  for (y in louvain_clustering_fusion_communities[[x]]){
+    pos<-which(vertices.df_fusion$nodes==y)
+    vertices.df_fusion[pos,"group"]<-x
+  }
+}
+
+#Fuse the two tables
+bolouri_paper_unique_interactions["TF_group"]<-0
+bolouri_paper_unique_interactions["target_group"]<-0
+
+bolouri_RF_fusion<-rbind(bolouri_RF_fusion,bolouri_paper_unique_interactions)
+
+#Add the group informatoon for all the nodes
+for (x in seq(nrow(bolouri_RF_fusion))){
+  pos<-which(vertices.df_fusion$nodes==bolouri_RF_fusion$TF[x])
+  bolouri_RF_fusion[x,"TF_group"]<-vertices.df_fusion[pos,"group"]
+  
+  pos2<-which(vertices.df_fusion$nodes==bolouri_RF_fusion$target[x])
+  bolouri_RF_fusion[x,"target_group"]<-vertices.df_fusion[pos2,"group"]
+}
+
+#Make sure that the present in both interaction is marked correctly
+bolouri_RF_fusion[which(bolouri_RF_fusion$present_in_both==T),]$paper<-T
+
+#Save the table
+setwd(analysis_directory)
+write.table(bolouri_RF_fusion, file='cytoscape_bolouri_RF_fusion.tsv', quote=FALSE, sep='\t', row.names = F)
 ```
+
+#Keep only the nodes that have more than one interaction
+```{r}
+g_fusion <- graph_from_data_frame(d = igraph_fusion, directed = T, vertices = vertices.df_fusion)
+
+V(g_fusion)$degree <- degree(g_fusion)
+
+# Select vertices with highest degrees
+v.degree <- degree(g_fusion)
+v.sorted <- sort(v.degree, decreasing = TRUE)
+remove<-names(which(v.sorted==1))
+v.sorted<-names(which(v.sorted>1))
+
+g_fusion<- induced_subgraph(g_fusion, v = v.sorted)
+l <- layout_with_fr(g_fusion)
+
+#Color nodes according to their highest expression
+colrs <- c("#FB8072","#80B1D3","#EDD94C")
+my_color<-colrs[as.numeric(as.factor(V(g_fusion)$most_expressed_in))]
+
+#Add weight to edges
+igraph_fusion_more_than_one<-igraph_fusion[-which(igraph_fusion$TF %in% remove),]
+igraph_fusion_more_than_one<-igraph_fusion_more_than_one[-which(igraph_fusion_more_than_one$target %in% remove),]
+
+E(g_fusion)$weight<-igraph_fusion_more_than_one$NIS
+
+pdf(paste0(analysis_directory,"/figures/bolouri_RF_fusion_more_than_one_interaction.pdf"),
+     width=15,
+     height=15)
+plot(g_fusion, 
+     layout=l,
+     edge.arrow.size=0.25,
+     vertex.size=5,
+     vertex.label.cex=0.4,
+     vertex.color=my_color,
+     edge.width=E(g_fusion)$weight*3,
+     vertex.frame.color='white')
+legend(x=-1, y=-0.5, c("Exhausted","Memory","Receptors"), pch=21,
+       col="#777777", pt.bg=colrs, pt.cex=2, cex=1.5, bty="n", ncol=1)
+dev.off()
+
+#Louvain clustering
+louvain_clustering_fusion_more_than_one<-cluster_louvain(as.undirected(g_fusion),weight=igraph_fusion_more_than_one$NIS, resolution =0.6)
+louvain_clustering_fusion_more_than_one_communities<-louvain_clustering_fusion_more_than_one$membership
+names(louvain_clustering_fusion_more_than_one_communities)<-louvain_clustering_fusion_more_than_one$names
+louvain_clustering_fusion_more_than_one_communities<-split(names(louvain_clustering_fusion_more_than_one_communities),louvain_clustering_fusion_more_than_one_communities)
+
+#Modify cytoscape dataframe to export it
+vertices.df_fusion_more_then_one<-vertices.df_fusion[vertices.df_fusion$nodes %in% unlist(louvain_clustering_fusion_more_than_one_communities),]
+
+vertices.df_fusion_more_then_one["group"]<-0
+
+for (x in names(louvain_clustering_fusion_more_than_one_communities)){
+  for (y in louvain_clustering_fusion_more_than_one_communities[[x]]){
+    pos<-which(vertices.df_fusion_more_then_one$nodes==y)
+    vertices.df_fusion_more_then_one[pos,"group"]<-x
+  }
+}
+
+bolouri_RF_fusion_more_than_one<-bolouri_RF_fusion[-which(bolouri_RF_fusion$TF %in% remove),]
+bolouri_RF_fusion_more_than_one<-bolouri_RF_fusion_more_than_one[-which(bolouri_RF_fusion_more_than_one$target %in% remove),]
+
+#Add the group informatoon for all the nodes
+for (x in seq(nrow(bolouri_RF_fusion_more_than_one))){
+  pos<-which(vertices.df_fusion_more_then_one$nodes==bolouri_RF_fusion_more_than_one$TF[x])
+  bolouri_RF_fusion_more_than_one[x,"TF_group"]<-vertices.df_fusion_more_then_one[pos,"group"]
+  
+  pos2<-which(vertices.df_fusion_more_then_one$nodes==bolouri_RF_fusion_more_than_one$target[x])
+  bolouri_RF_fusion_more_than_one[x,"target_group"]<-vertices.df_fusion_more_then_one[pos2,"group"]
+}
+
+#Save the table
+setwd(analysis_directory)
+write.table(bolouri_RF_fusion_more_than_one, file='cytoscape_bolouri_RF_fusion_more_than_one.tsv', quote=FALSE, sep='\t', row.names = F)
+```
+
 
