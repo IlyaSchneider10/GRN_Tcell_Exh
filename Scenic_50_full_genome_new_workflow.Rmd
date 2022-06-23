@@ -1499,7 +1499,7 @@ legend(x=-1, y=-0.5, c("Exhausted","Memory","Receptors"), pch=21,
 dev.off()
 
 #Louvain clustering
-louvain_clustering_fusion_more_than_one<-cluster_louvain(as.undirected(g_fusion),weight=igraph_fusion_more_than_one$NIS, resolution =0.6)
+louvain_clustering_fusion_more_than_one<-cluster_louvain(as.undirected(g_fusion),weight=igraph_fusion_more_than_one$NIS, resolution =0.50)
 louvain_clustering_fusion_more_than_one_communities<-louvain_clustering_fusion_more_than_one$membership
 names(louvain_clustering_fusion_more_than_one_communities)<-louvain_clustering_fusion_more_than_one$names
 louvain_clustering_fusion_more_than_one_communities<-split(names(louvain_clustering_fusion_more_than_one_communities),louvain_clustering_fusion_more_than_one_communities)
