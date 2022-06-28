@@ -365,6 +365,11 @@ frequency_summary["NIS"]<-all_nis
 write.csv(frequency_summary,paste0(analysis_directory,"/frequency_summary.csv"), row.names = F)
 ```
 
+#Import frequency_summary
+```{r}
+frequency_summary<-read.csv(paste0(analysis_directory,"/frequency_summary.csv"),header=T)
+```
+
 #Select best peaks for cistrome
 ```{r eval=FALSE, echo=FALSE}
 #Work with cistrome description file
@@ -391,10 +396,10 @@ cistrome_blood_files<-cistrome_blood_files[names(cistrome_blood_files) %in% scen
 cistrome_blood_files<-split(cistrome_blood_files,names(cistrome_blood_files))
 cistrome_blood_files<-lapply(cistrome_blood_files, dplyr::bind_rows)
 
-#Select top 10000 peaks for each TF
+#Select top 6000 peaks for each TF
 cistrome_best_peaks<-cistrome_blood_files
 for (y in names(cistrome_best_peaks)){
-  best_peaks<-unique(head(sort(cistrome_best_peaks[[y]]$V5, decreasing=T),1000))
+  best_peaks<-unique(head(sort(cistrome_best_peaks[[y]]$V5, decreasing=T),6000))
   keep<-c()
   for (x in best_peaks){
     keep<-append(keep,which(cistrome_best_peaks[[y]]$V5==x))
@@ -428,8 +433,8 @@ change_peak_format<-function(peak){
 }
 cistrome_best_peaks<-lapply(cistrome_best_peaks,change_peak_format)
 
-#Extend the peaks by 10 kb in both directions
-extension=10000
+#Extend the peaks by 1 kb in both directions
+extension=1000
 extend_peaks<-function(peak, e){
   peak<-mutate(peak,start=start-e)
   peak<-mutate(peak,end=end+e)
@@ -467,7 +472,6 @@ cistrome_overlap_genes<-lapply(cistrome_overlap_transcripts,plyranges::find_over
 cistrome_overlap_gene_names<-lapply(cistrome_overlap_genes,function(x){unique(unlist(x$SYMBOL))})
 total_genes<-unique(unlist(cistrome_overlap_gene_names))
 scenic_cistrome_overlap<-scenic_output_tfs[scenic_output_tfs %in% total_genes]
-paper_nodes[paper_nodes %in% scenic_cistrome_overlap]
 cistrome_overlap_gene_names<-lapply(cistrome_overlap_gene_names, function(x){x[x %in% scenic_output_tfs]})
 
 #Add cistrome filter to interactions_summary
@@ -489,49 +493,6 @@ cistrome_summary_nodes<-unique(c(unique(cistrome_summary$TF),unique(cistrome_sum
 frequency_cistrome_summary<-interactions_summary[which(interactions_summary$cistrome_filter==T &interactions_summary$frequency_filter==T),]
 frequency_cistrome_summary_nodes<-unique(c(unique(frequency_cistrome_summary$target),unique(frequency_cistrome_summary$TF)))
 ```
-
-#Plot interactions from frequency filter marking the ones confirmed by cistrome
-```{r}
-#Select dataframe for plotting and plot it
-frequency_interactions_plot<-interactions_summary[which(interactions_summary$frequency_filter==T),]
-frequency_interactions_plot<-frequency_interactions_plot[,c(1,2,5)]
-vertices.df <- data.frame(genes=unique(c(frequency_interactions_plot$target, frequency_interactions_plot$TF)),cistrome=0)
-vertices.df["cistrome"]<-as.numeric(vertices.df$genes %in% frequency_cistrome_summary_nodes)
-
-## Importing to igraph
-g <- graph_from_data_frame(d = frequency_interactions_plot, directed = TRUE, vertices = vertices.df)
-V(g)$degree <- igraph::degree(g)
-#colrs <- c("gray50", "tomato")
-#V(g)$color <- colrs[V(g)$cistrome]
-
-## Select vertices with highest degrees
-v.degree <- igraph::degree(g)
-v.sorted <- sort(v.degree, decreasing = TRUE)
-v.sorted<-names(which(v.sorted>5))
-
-g.subset <- induced_subgraph(g, v = v.sorted)
-l <- layout_with_fr(g.subset)
-
-plot(g.subset, 
-     layout=l,
-     edge.arrow.size=0.1,
-     vertex.size=(V(g.subset)$degree/max(V(g.subset)$degree)*15),
-     vertex.label.cex=(V(g.subset)$degree/max(V(g.subset)$degree)*1.3),
-     edge.width=0.5,
-     vertex.frame.color='white')
-
-pdf(paste0(analysis_directory,'/figures/frequency_interactions_plot.pdf'),
-     width=15,
-     height=12)
-plot(g.subset, 
-     layout=l,
-     edge.arrow.size=0.1,
-     vertex.size=(V(g.subset)$degree/max(V(g.subset)$degree)*18),
-     vertex.label.cex=(V(g.subset)$degree/max(V(g.subset)$degree)*1.5),
-     edge.width=0.5,
-     vertex.frame.color='white')
-dev.off()
-``` 
 
 #ATAC-seq data
 ```{r}
@@ -608,6 +569,67 @@ ataq_seq_summary<-interactions_summary[which(interactions_summary$`ataq-seq`==T)
 #Dataframe for interactions that pass frequency and ataq_seq filter
 frequency_ataq_seq_summary<-interactions_summary[which(interactions_summary$`ataq-seq`==T & interactions_summary$frequency_filter==T),]
 frequency_ataq_seq_summary_nodes<-unique(c(unique(frequency_ataq_seq_summary$TF),unique(frequency_ataq_seq_summary$target)))
+```
+
+#Dorothea
+```{r}
+#Look up which interactions are confirmed by dorothea
+confirmed<-c()
+for (x in seq(nrow(frequency_summary))){
+  tf<-which(frequency_summary$TF[x]==dorothea_hs$tf)
+  target<-which(frequency_summary$target[x]==dorothea_hs$target)
+  pos<-tf %in% target
+  if(length(pos)!=0){
+    confirmed<-append(confirmed,tf[pos])
+  }
+}
+
+#Only keep the one with A confidence
+dorothea_keep<-dorothea_hs[confirmed,]
+dorothea_keep<-dorothea_keep[which(dorothea_keep$confidence=="A"),]
+
+#Mark those in frequency table
+keep<-c()
+for (x in seq(nrow(dorothea_keep))){
+  tf<-which(dorothea_keep$tf[x]==frequency_summary$TF)
+  target<-which(dorothea_keep$target[x]==frequency_summary$target)
+  pos<-tf %in% target
+  if(length(pos)!=0){
+    keep<-append(keep,tf[pos])
+  }
+}
+
+frequency_dorothea_summary<-frequency_summary[keep,]
+frequency_dorothea_summary["dorothea_filter"]<-F
+frequency_dorothea_summary[keep,"dorothea_filter"]<-T
+```
+
+#Unite all confirmed interactions in one file
+```{r}
+find_same_interactions_dfs<-function(df_to_compare,reference_df){
+  confirmed<-c()
+  for (x in seq(nrow(reference_df))){
+    tf<-which(reference_df$TF[x]==df_to_compare$TF)
+    target<-which(reference_df$target[x]==df_to_compare$target)
+    pos<-tf %in% target
+      if(length(pos)!=0){
+       confirmed<-append(confirmed,tf[pos])
+      }
+  }
+  return(confirmed)
+}
+
+frequency_confirmed_interactions_summary<-frequency_summary
+frequency_confirmed_interactions_summary["confirmed_interactions"]<-F
+
+cistrome_confirmed<-find_same_interactions_dfs(frequency_summary,frequency_cistrome_summary)
+dorothea_confirmed<-find_same_interactions_dfs(frequency_summary,frequency_dorothea_summary)
+ataq_seq_confirmed<-find_same_interactions_dfs(frequency_summary,frequency_ataq_seq_summary)
+
+confirmed<-unique(c(cistrome_confirmed,dorothea_confirmed,ataq_seq_confirmed))
+
+frequency_confirmed_interactions_summary[confirmed,"confirmed_interactions"]<-T
+frequency_confirmed_interactions_summary<-frequency_confirmed_interactions_summary[which(frequency_confirmed_interactions_summary$confirmed_interactions==T),]
 ```
 
 #Select regulons for binarizing their aucell scores
@@ -914,9 +936,6 @@ for (x in names(acuell_scores_hclust_2g_assignment)){
 
 #Create a network and communities using 90% as scenic filter and 100 TFs from RF
 ```{r}
-#Import required files
-frequency_summary<-read.csv(paste0(analysis_directory,"/frequency_summary.csv"),header=T)
-
 #Select only interactions that are among top 100 TFs
 frequency_summary_top100<-frequency_summary[which(frequency_summary$TF %in% aucell_model_importance_top100),]
 frequency_summary_top100<-frequency_summary_top100[which(frequency_summary_top100$target %in% aucell_model_importance_top100),]
@@ -927,17 +946,17 @@ vertices.df<-data.frame(unique(c(frequency_summary_top100$TF,frequency_summary_t
 vertices.df["most_expressed_in"]<-aucell_scores_norm_cell_types_binarized_max_cell_type[names(aucell_scores_norm_cell_types_binarized_max_cell_type) %in% vertices.df[,1]]
 
 #Look how many of these interactions are confirmed by cistrome and frequency
-frequency_cistrome_summary_top100<-frequency_cistrome_summary[which(frequency_cistrome_summary$TF %in% aucell_model_importance_top100),]
-frequency_cistrome_summary_top100<-frequency_cistrome_summary_top100[which(frequency_cistrome_summary_top100$target %in% aucell_model_importance_top100),]
-frequency_cistrome_summary_top100<-frequency_cistrome_summary_top100[which(frequency_cistrome_summary_top100$frequency>=45),]
+frequency_confirmed_interactions_summary_top100<-frequency_confirmed_interactions_summary[which(frequency_confirmed_interactions_summary$TF %in% aucell_model_importance_top100),]
+frequency_confirmed_interactions_summary_top100<-frequency_confirmed_interactions_summary_top100[which(frequency_confirmed_interactions_summary_top100$target %in% aucell_model_importance_top100),]
+frequency_confirmed_interactions_summary_top100<-frequency_confirmed_interactions_summary_top100[which(frequency_confirmed_interactions_summary_top100$frequency>=45),]
 
-#Add cistrome column to the frequency_summary_top100 dataframe
-frequency_summary_top100["cistrome_filter"]<-F
-for (x in seq(nrow(frequency_cistrome_summary_top100))){
-  tf_row<-which(frequency_summary_top100$TF==frequency_cistrome_summary_top100[x,]$TF)
-  target_row<-which(frequency_summary_top100$target==frequency_cistrome_summary_top100[x,]$target)
+#Add confirmed interactions column to the frequency_summary_top100 dataframe
+frequency_summary_top100["confirmed_interactions"]<-F
+for (x in seq(nrow(frequency_confirmed_interactions_summary_top100))){
+  tf_row<-which(frequency_summary_top100$TF==frequency_confirmed_interactions_summary_top100[x,]$TF)
+  target_row<-which(frequency_summary_top100$target==frequency_confirmed_interactions_summary_top100[x,]$target)
   pos<-tf_row[which(tf_row %in% target_row)]
-  frequency_summary_top100[pos,"cistrome_filter"]<-T
+  frequency_summary_top100[pos,"confirmed_interactions"]<-T
 }
 
 #Look how many of our nodes overlap with the paper
@@ -968,7 +987,7 @@ pdf(paste0(analysis_directory,'/figures/frequency_90_interactions_top100_plot.pd
 plot(g, 
      layout=l,
      edge.arrow.size=0.25,
-     edge.color=c("grey","dark red")[as.numeric(as.factor(E(g)$cistrome_filter))],
+     edge.color=c("grey","dark red")[as.numeric(as.factor(E(g)$confirmed_interactions))],
      vertex.size=5,
      vertex.label.cex=0.4,
      vertex.color=my_color,
@@ -1060,7 +1079,6 @@ frequency_summary_top100_paper_interactions_miss<-frequency_summary_top100[targe
 #Unite the existing and the missing interactions
 frequency_summary_top100_paper<-rbind(frequency_summary_top100_paper,frequency_summary_top100_paper_interactions_miss)
 
-
 #Remove self regulation
 remove<-c()
 for (x in seq(nrow(frequency_summary_top100_paper))){
@@ -1096,22 +1114,22 @@ frequency_summary_top100_paper_interactions_nis[duplicate_interactions]<-unlist(
 frequency_summary_top100_paper<-frequency_summary_top100_paper[-which(duplicated(frequency_summary_top100_paper_interactions)),]
 frequency_summary_top100_paper["NIS"]<-frequency_summary_top100_paper_interactions_nis
 
-#Introduce lost cistrome confirmed interactions
-frequency_cistrome_summary_top100_paper<-frequency_cistrome_summary_top100
-frequency_cistrome_summary_top100_paper["TF"]<-gsub("JUNB|JUND|JUN|FOSB|FOS","JUN-FOS",frequency_cistrome_summary_top100_paper$TF)
-frequency_cistrome_summary_top100_paper["target"]<-gsub("JUNB|JUND|JUN|FOSB|FOS","JUN-FOS",frequency_cistrome_summary_top100_paper$target)
+#Introduce lost confirmed interactions
+frequency_confirmed_interactions_summary_top100_paper<-frequency_confirmed_interactions_summary_top100
+frequency_confirmed_interactions_summary_top100_paper["TF"]<-gsub("JUNB|JUND|JUN|FOSB|FOS","JUN-FOS",frequency_confirmed_interactions_summary_top100_paper$TF)
+frequency_confirmed_interactions_summary_top100_paper["target"]<-gsub("JUNB|JUND|JUN|FOSB|FOS","JUN-FOS",frequency_confirmed_interactions_summary_top100_paper$target)
 
-cistrome_paper<-c()
-for (x in seq(nrow(frequency_cistrome_summary_top100_paper))){
-  tfs<-which(frequency_summary_top100_paper$TF==frequency_cistrome_summary_top100_paper$TF[x])
-  targets<-which(frequency_summary_top100_paper$target==frequency_cistrome_summary_top100_paper$target[x])
+confirmed_interactions_paper<-c()
+for (x in seq(nrow(frequency_confirmed_interactions_summary_top100_paper))){
+  tfs<-which(frequency_summary_top100_paper$TF==frequency_confirmed_interactions_summary_top100_paper$TF[x])
+  targets<-which(frequency_summary_top100_paper$target==frequency_confirmed_interactions_summary_top100_paper$target[x])
   pos<-tfs[tfs %in% targets]
   if(length(pos)!=0){
-    cistrome_paper<-append(cistrome_paper,pos)
+    confirmed_interactions_paper<-append(confirmed_interactions_paper,pos)
   }
 }
 
-frequency_summary_top100_paper[cistrome_paper,"cistrome_filter"]<-T
+frequency_summary_top100_paper[confirmed_interactions_paper,"confirmed_interactions"]<-T
 
 #Modify JUN-FOS vertices to get "most_expressed in" right
 vertices.df_paper<-vertices.df
@@ -1147,7 +1165,7 @@ pdf(paste0(analysis_directory,"/figures/RF_paper_overlap_TFs.pdf"),
 plot(g_paper_overlap, 
      layout=l,
      edge.arrow.size=0.25,
-     edge.color=c("grey","dark red")[as.numeric(as.factor(E(g_paper_overlap)$cistrome_filter))],
+     edge.color=c("grey","dark red")[as.numeric(as.factor(E(g_paper_overlap)$confirmed_interactions))],
      vertex.size=5,
      vertex.label.cex=0.4,
      vertex.color=my_color,
@@ -1213,47 +1231,6 @@ bolouri_paper_interactions["target"]<-gsub("BLIMP-1","PRDM1",bolouri_paper_inter
 bolouri_paper_interactions["target"]<-gsub("NFkB","NFKB1",bolouri_paper_interactions$target)
 bolouri_paper_interactions["target"]<-gsub("EZH2/PRC2","EZH2",bolouri_paper_interactions$target)
 
-#Substitute multiple TFs/targets
-bolouri_multiple_tf_pos<-grep(":",bolouri_paper_interactions$TF)
-bolouri_multiple_tf<-bolouri_paper_interactions$TF[bolouri_multiple_tf_pos[!duplicated(bolouri_paper_interactions$TF[bolouri_multiple_tf_pos])]]
-
-bolouri_multiple_target_pos<-grep(":",bolouri_paper_interactions$target)
-bolouri_multiple_target<-bolouri_paper_interactions$target[bolouri_multiple_target_pos[!duplicated(bolouri_paper_interactions$target[bolouri_multiple_target_pos])]]
-
-bolouri_multiple_tf==bolouri_multiple_target
-
-bolouri_multiple<-bolouri_multiple_tf
-
-remove_multiple_bolouri_paper_entry<-function(str){
-  one<-sub(":.*", "", str)
-  two<-str_match_all(str, ":\\s*(.*?)\\s*:")[[1]][,2]
-  three<-sub(".*:", "", str)
-  four<-gsub(paste0(":|",one,"|",two,"|",three,"|"),"",str)
-  
-  res<-c(one, two, three,four)
-}
-
-bolouri_multiple_sub<-remove_multiple_bolouri_paper_entry(bolouri_multiple)
-
-new_one<-data.frame(rep(bolouri_multiple_sub,length(bolouri_multiple_tf_pos)),rep(bolouri_paper_interactions[bolouri_multiple_tf_pos,]$target,length(bolouri_multiple_sub)))
-colnames(new_one)<-colnames(bolouri_paper_interactions)[1:2]
-new_one["Interaction"]<-rep(bolouri_paper_interactions[bolouri_multiple_tf_pos,]$Interaction,length(bolouri_multiple_sub))
-
-new_two_targets<-c()
-for (x in bolouri_multiple_sub){
-  r<-rep(x,length(bolouri_multiple_target_pos))
-  new_two_targets<-append(new_two_targets,r)
-}
-new_two<-data.frame(rep(bolouri_paper_interactions[bolouri_multiple_target_pos,]$TF,length(bolouri_multiple_sub)),new_two_targets)
-colnames(new_two)<-colnames(bolouri_paper_interactions)[1:2]
-new_two["Interaction"]<-rep(bolouri_paper_interactions[bolouri_multiple_target_pos,]$Interaction,length(bolouri_multiple_sub))
-
-bolouri_new_entries<-rbind(new_one,new_two)
-
-bolouri_paper_interactions<-bolouri_paper_interactions[-c(bolouri_multiple_tf_pos,bolouri_multiple_target_pos),]
-bolouri_paper_interactions<-rbind(bolouri_paper_interactions,bolouri_new_entries)
-bolouri_paper_interactions<-bolouri_paper_interactions[order(bolouri_paper_interactions$TF),]
-
 #Select only interactions that have as TF or target an overlapping node
 bolouri_paper_interactions_overlap<-rbind(bolouri_paper_interactions[which(bolouri_paper_interactions$TF %in% paper_top100_overlap),],bolouri_paper_interactions[which(bolouri_paper_interactions$target %in% paper_top100_overlap),])
 
@@ -1270,16 +1247,6 @@ bolouri_paper_interactions_overlap_interactions_miss<-bolouri_paper_interactions
 #Unite the identified and missed interactions
 bolouri_paper_interactions_overlap<-rbind(bolouri_paper_interactions_overlap,bolouri_paper_interactions_overlap_interactions_miss)
 
-#Remove self regulation
-remove<-c()
-for (x in seq(nrow(bolouri_paper_interactions_overlap))){
-  if(bolouri_paper_interactions_overlap$TF[x]==bolouri_paper_interactions_overlap$target[x]){
-    remove<-append(remove,x)
-  }
-}
-
-bolouri_paper_interactions_overlap<-bolouri_paper_interactions_overlap[-remove,]
-
 #Create all interactions
 bolouri_paper_interactions_overlap<-bolouri_paper_interactions_overlap[order(bolouri_paper_interactions_overlap$TF),]
 
@@ -1293,11 +1260,6 @@ rownames(bolouri_paper_interactions_overlap)<-seq(nrow(bolouri_paper_interaction
 
 bolouri_paper_interactions_overlap<-bolouri_paper_interactions_overlap[-which(duplicated(bolouri_paper_interactions_overlap_interactions)),]
 
-#Some manual adjustments
-rownames(bolouri_paper_interactions_overlap)<-seq(nrow(bolouri_paper_interactions_overlap))
-
-bolouri_paper_interactions_overlap[44,3]<-"inhibits"
-
 #Look for further nomenclature differences
 tf_nomenclature<-names(paper_substitutions)[names(paper_substitutions) %in% bolouri_paper_interactions_overlap$TF]
 
@@ -1309,7 +1271,8 @@ names(paper_substitutions)[names(paper_substitutions) %in% bolouri_paper_interac
 #Create new cytoscape df to represent overlap between Bolouri paper and 82 RF TF network
 ```{r}
 #Remove rows that dont contain TFs
-bolouri_paper_interactions_overlap<-bolouri_paper_interactions_overlap[-c(53,54,55),]
+rownames(bolouri_paper_interactions_overlap)<-seq(nrow(bolouri_paper_interactions_overlap))
+bolouri_paper_interactions_overlap<-bolouri_paper_interactions_overlap[-c(36,37,38),]
 bolouri_paper_interactions_overlap<-bolouri_paper_interactions_overlap[order(bolouri_paper_interactions_overlap$TF),]
 rownames(bolouri_paper_interactions_overlap)<-seq(nrow(bolouri_paper_interactions_overlap))
 rownames(cytoscape_paper_overlap)<-seq(nrow(cytoscape_paper_overlap))
@@ -1327,46 +1290,38 @@ for (x in seq(nrow(cytoscape_paper_overlap))){
 
 #Mark the common interaction
 bolouri_RF_fusion<-cytoscape_paper_overlap
-bolouri_RF_fusion["present_in_both"]<-F
-bolouri_RF_fusion[common_interactions,"present_in_both"]<-T
 bolouri_RF_fusion["RF"]<-T
 bolouri_RF_fusion["paper"]<-F
 
-tfs<-which(bolouri_paper_interactions_overlap$TF==cytoscape_paper_overlap$TF[common_interactions])
-targets<-which(bolouri_paper_interactions_overlap$target==cytoscape_paper_overlap$target[common_interactions])
-pos<-which(tfs %in% targets)
-
-bolouri_paper_unique_interactions<-bolouri_paper_interactions_overlap[,c(1,2)]
-bolouri_paper_unique_interactions<-bolouri_paper_unique_interactions[-tfs[pos],]
-bolouri_paper_unique_interactions["present_in_both"]<-F
-bolouri_paper_unique_interactions["RF"]<-F
-bolouri_paper_unique_interactions["paper"]<-T
-bolouri_paper_unique_interactions["NIS"]<-1
-bolouri_paper_unique_interactions["cistrome_filter"]<-F
+bolouri_paper_interactions_overlap<-bolouri_paper_interactions_overlap[,c(1,2)]
+bolouri_paper_interactions_overlap["RF"]<-F
+bolouri_paper_interactions_overlap["paper"]<-T
+bolouri_paper_interactions_overlap["NIS"]<-1
+bolouri_paper_interactions_overlap["confirmed_interactions"]<-F
 
 #Assign "most_expressed_in" column
 vertices.df_fusion<-vertices.df_paper
 rownames(vertices.df_fusion)<-seq(nrow(vertices.df_fusion))
 
-nodes_to_add<-unique(c(bolouri_paper_unique_interactions$TF,bolouri_paper_unique_interactions$target))[!unique(c(bolouri_paper_unique_interactions$TF,bolouri_paper_unique_interactions$target)) %in% vertices.df_fusion$nodes]
+nodes_to_add<-unique(c(bolouri_paper_interactions_overlap$TF,bolouri_paper_interactions_overlap$target))[!unique(c(bolouri_paper_interactions_overlap$TF,bolouri_paper_interactions_overlap$target)) %in% vertices.df_fusion$nodes]
 new_rows<-gsub(" ",",",seq(nrow(vertices.df_fusion)+1,nrow(vertices.df_fusion)+length(nodes_to_add)))
 vertices.df_fusion[new_rows,]<-nodes_to_add
-nodes_to_add_expr<-c("mem","mem","exh","mem","rec","rec","rec","mem","mem","mem","exh","exh","exh","exh","mem","mem","exh","mem","rec","mem","exh","exh","rec","rec","rec","rec")
+nodes_to_add_expr<-c("mem","mem","mem","rec","rec","rec","mem","mem","mem","exh","exh","exh","mem","mem","exh","p-complex","mem","rec","mem","exh","exh","rec","rec","rec","rec")
 vertices.df_fusion[new_rows,"most_expressed_in"]<-nodes_to_add_expr
 
-bolouri_paper_unique_interactions["TF_most_expressed_in"]<-"none"
-bolouri_paper_unique_interactions["target_most_expressed_in"]<-"none"
+bolouri_paper_interactions_overlap["TF_most_expressed_in"]<-"none"
+bolouri_paper_interactions_overlap["target_most_expressed_in"]<-"none"
 
-for (x in seq(nrow(bolouri_paper_unique_interactions))){
-  pos<-which(vertices.df_fusion$nodes==bolouri_paper_unique_interactions$TF[x])
-  bolouri_paper_unique_interactions[x,"TF_most_expressed_in"]<-vertices.df_fusion[pos,"most_expressed_in"]
+for (x in seq(nrow(bolouri_paper_interactions_overlap))){
+  pos<-which(vertices.df_fusion$nodes==bolouri_paper_interactions_overlap$TF[x])
+  bolouri_paper_interactions_overlap[x,"TF_most_expressed_in"]<-vertices.df_fusion[pos,"most_expressed_in"]
   
-  pos2<-which(vertices.df_fusion$nodes==bolouri_paper_unique_interactions$target[x])
-  bolouri_paper_unique_interactions[x,"target_most_expressed_in"]<-vertices.df_fusion[pos2,"most_expressed_in"]
+  pos2<-which(vertices.df_fusion$nodes==bolouri_paper_interactions_overlap$target[x])
+  bolouri_paper_interactions_overlap[x,"target_most_expressed_in"]<-vertices.df_fusion[pos2,"most_expressed_in"]
 }
 
 #Create igraph to represent the combined network
-igraph_fusion<-rbind(bolouri_RF_fusion[,c(1,4,7)],bolouri_paper_unique_interactions[,c(1,2,6)])
+igraph_fusion<-rbind(bolouri_RF_fusion[,c(1,4,7)],bolouri_paper_interactions_overlap[,c(1,2,5)])
 rownames(igraph_fusion)<-seq(nrow(igraph_fusion))
 
 g_fusion <- graph_from_data_frame(d = igraph_fusion, directed = T, vertices = vertices.df_fusion)
@@ -1379,7 +1334,7 @@ v.sorted <- sort(v.degree, decreasing = TRUE)
 v.sorted<-names(v.sorted)
 
 #Color nodes according to their highest expression
-colrs <- c("#FB8072","#80B1D3","#EDD94C","#BEBADA")
+colrs <- c("#FB8072","#80B1D3","#AFE1AF","#EDD94C","#BEBADA")
 my_color<-colrs[as.numeric(as.factor(V(g_fusion)$most_expressed_in))]
 
 #Add weight to edges
@@ -1399,7 +1354,7 @@ plot(g_fusion,
      vertex.color=my_color,
      edge.width=E(g_fusion)$weight*3,
      vertex.frame.color='white')
-legend(x=-1, y=-0.5, c("Exhausted","Memory","Receptors","Transition"), pch=21,
+legend(x=-1, y=-0.5, c("Exhausted","Memory","Protein Complex","Receptors","Transition"), pch=21,
        col="#777777", pt.bg=colrs, pt.cex=2, cex=1.5, bty="n", ncol=1)
 dev.off()
 
@@ -1419,10 +1374,10 @@ for (x in names(louvain_clustering_fusion_communities)){
 }
 
 #Fuse the two tables
-bolouri_paper_unique_interactions["TF_group"]<-0
-bolouri_paper_unique_interactions["target_group"]<-0
+bolouri_paper_interactions_overlap["TF_group"]<-0
+bolouri_paper_interactions_overlap["target_group"]<-0
 
-bolouri_RF_fusion<-rbind(bolouri_RF_fusion,bolouri_paper_unique_interactions)
+bolouri_RF_fusion<-rbind(bolouri_RF_fusion,bolouri_paper_interactions_overlap)
 
 #Add the group informatoon for all the nodes
 for (x in seq(nrow(bolouri_RF_fusion))){
@@ -1433,17 +1388,14 @@ for (x in seq(nrow(bolouri_RF_fusion))){
   bolouri_RF_fusion[x,"target_group"]<-vertices.df_fusion[pos2,"group"]
 }
 
-#Make sure that the present in both interaction is marked correctly
-bolouri_RF_fusion[which(bolouri_RF_fusion$present_in_both==T),]$paper<-T
-
 #Save the table
 write.table(bolouri_RF_fusion, file=paste0(analysis_directory,'/cytoscape/Input/cytoscape_bolouri_RF_fusion.tsv'), quote=FALSE, sep='\t', row.names = F)
 ```
 
 #Bonesis Toy
 ```{r}
-bonesis_toy_nodes<-read.csv(paste0(analysis_directory,"/cytoscape/Output/cytoscape_bolouri_RF_fusion_Bonesis_toy_nodes.csv"),header=T)[,c(1,2,3)]
-bonesis_toy_edges<-read.csv(paste0(analysis_directory,"/cytoscape/Output/cytoscape_bolouri_RF_fusion_Bonesis_toy_edges.csv"),header=T)[,3]
+bonesis_toy_nodes<-read.csv(paste0(analysis_directory,"/cytoscape/Output/cytoscape_bolouri_RF_fusion.tsv_Bonesis_toy_nodes.csv"),header=T)[,c(1,2,3)]
+bonesis_toy_edges<-read.csv(paste0(analysis_directory,"/cytoscape/Output/cytoscape_bolouri_RF_fusion.tsv_Bonesis_toy_edges.csv"),header=T)[,3]
 bonesis_toy_tf<-sub(" .*", "", bonesis_toy_edges)
 bonesis_toy_target<-sub(".* ", "", bonesis_toy_edges)
 
@@ -1465,69 +1417,3 @@ for (x in seq(nrow(bonesis_toy_interactions))){
 
 bolouri_paper_interactions[importance,]
 ```
-
-#Validate interactions from bolouri_RF_fusion_curated network
-```{r}
-#Export the interactions
-bolouri_RF_fusion_curated_edges<-read.csv(paste0(analysis_directory,"/cytoscape/Output/cytoscape_bolouri_RF_fusion_curated_edge_2.csv"),header=T)
-
-bolouri_RF_fusion_curated_edges_tf<-sub(" .*", "", bolouri_RF_fusion_curated_edges[,3])
-bolouri_RF_fusion_curated_edges_target<-sub(".* ", "", bolouri_RF_fusion_curated_edges[,3])
-
-bolouri_RF_fusion_curated_edges_tf<-gsub("CD3,","CD3, TCR, CD8, CD28",bolouri_RF_fusion_curated_edges_tf)
-bolouri_RF_fusion_curated_edges_target<-gsub("CD28","CD3, TCR, CD8, CD28",bolouri_RF_fusion_curated_edges_target)
-
-bolouri_RF_fusion_curated_edges["TF"]<-bolouri_RF_fusion_curated_edges_tf
-bolouri_RF_fusion_curated_edges["target"]<-bolouri_RF_fusion_curated_edges_target
-
-bolouri_RF_fusion_curated_edges<-bolouri_RF_fusion_curated_edges[,-c(2,3,8,9,10)]
-bolouri_RF_fusion_curated_edges<-bolouri_RF_fusion_curated_edges[,c(6,7,1,2,3,4,5)]
-
-bolouri_RF_fusion_curated_edges["cistrome_filter"]<-as.logical(bolouri_RF_fusion_curated_edges$cistrome_filter)
-bolouri_RF_fusion_curated_edges["paper"]<-as.logical(bolouri_RF_fusion_curated_edges$paper)
-bolouri_RF_fusion_curated_edges["present_in_both"]<-as.logical(bolouri_RF_fusion_curated_edges$present_in_both)
-bolouri_RF_fusion_curated_edges["RF"]<-as.logical(bolouri_RF_fusion_curated_edges$RF)
-
-#Select the ones from RF
-bolouri_RF_fusion_curated_edges_RF<-bolouri_RF_fusion_curated_edges[which(bolouri_RF_fusion_curated_edges$RF==T),]
-bolouri_RF_fusion_curated_edges_RF<-bolouri_RF_fusion_curated_edges_RF[,-c(5,6,7)]
-bolouri_RF_fusion_curated_edges_RF<-bolouri_RF_fusion_curated_edges_RF[,c(1,2,4,3)]
-
-#ATAC-seq validation
-frequency_ataq_seq_summary<-frequency_ataq_seq_summary[which(frequency_ataq_seq_summary$frequency>=45),]
-
-confirmed<-c()
-for (x in seq(nrow(frequency_ataq_seq_summary))){
-  tf<-which(bolouri_RF_fusion_curated_edges_RF$TF==frequency_ataq_seq_summary$TF[x])
-  target<-which(bolouri_RF_fusion_curated_edges_RF$target==frequency_ataq_seq_summary$target[x])
-  pos<-tf %in% target
-  if(length(pos)!=0){
-    confirmed<-append(confirmed,tf[pos])
-  }
-}
-
-bolouri_RF_fusion_curated_edges_RF["atac_filter"]<-F
-bolouri_RF_fusion_curated_edges_RF[confirmed,"atac_filter"]<-T
-
-#Dorothea
-confirmed<-c()
-for (x in seq(nrow(dorothea_hs))){
-  tf<-which(bolouri_RF_fusion_curated_edges_RF$TF==dorothea_hs$tf[x])
-  target<-which(bolouri_RF_fusion_curated_edges_RF$target==dorothea_hs$target[x])
-  pos<-tf %in% target
-  if(length(pos)!=0){
-    confirmed<-append(confirmed,tf[pos])
-  }
-}
-
-bolouri_RF_fusion_curated_edges_RF["dorothea_filter"]<-F
-bolouri_RF_fusion_curated_edges_RF[confirmed,"dorothea_filter"]<-T
-bolouri_RF_fusion_curated_edges_RF[confirmed,]
-
-#Cistrome
-
-#NIS
-```
-```
-
-
