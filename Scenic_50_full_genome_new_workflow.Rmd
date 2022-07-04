@@ -36,7 +36,7 @@ output: html_document
 #if (!require("BiocManager", quietly = TRUE))
 #   install.packages("BiocManager")
 #BiocManager::install("Homo.sapiens")
-
+ 
 #if (!require("BiocManager", quietly = TRUE))
 #   install.packages("BiocManager")
 #BiocManager::install("plyranges")
@@ -494,6 +494,39 @@ frequency_cistrome_summary<-interactions_summary[which(interactions_summary$cist
 frequency_cistrome_summary_nodes<-unique(c(unique(frequency_cistrome_summary$target),unique(frequency_cistrome_summary$TF)))
 ```
 
+#Dorothea
+```{r}
+#Look up which interactions are confirmed by dorothea
+confirmed<-c()
+for (x in seq(nrow(frequency_summary))){
+  tf<-which(frequency_summary$TF[x]==dorothea_hs$tf)
+  target<-which(frequency_summary$target[x]==dorothea_hs$target)
+  pos<-tf %in% target
+  if(length(pos)!=0){
+    confirmed<-append(confirmed,tf[pos])
+  }
+}
+
+#Kepp only A confidence
+dorothea_keep<-dorothea_hs[confirmed,]
+dorothea_keep<-dorothea_keep[which(dorothea_keep$confidence=="A"),]
+
+#Mark those in frequency table
+keep<-c()
+for (x in seq(nrow(dorothea_keep))){
+  tf<-which(dorothea_keep$tf[x]==interactions_summary$TF)
+  target<-which(dorothea_keep$target[x]==interactions_summary$target)
+  pos<-tf %in% target
+  if(length(pos)!=0){
+    keep<-append(keep,tf[pos])
+  }
+}
+
+interactions_summary["dorothea_filter"]<-F
+interactions_summary[keep,"dorothea_filter"]<-T
+frequency_dorothea_summary<-interactions_summary[which(interactions_summary$dorothea_filter==T & interactions_summary$frequency_filter==T),]
+```
+
 #ATAC-seq data
 ```{r}
 #Selecet only targets and TFs from atac_seq file
@@ -523,7 +556,6 @@ for (x in seq(length(atac_seq_list))){
 atac_seq_list<-split(atac_seq_list,names(atac_seq_list))
 atac_seq_list<-lapply(atac_seq_list,unlist)
 atac_seq_list<-lapply(atac_seq_list, unique)
-
 #Deal with complex target names
 multiple_targets<-atac_seq_list[grep(";", names(atac_seq_list))]
 converted_targets<-list()
@@ -543,13 +575,11 @@ atac_seq_list<-c(converted_targets,atac_seq_list)
 atac_seq_list<-split(atac_seq_list,names(atac_seq_list))
 atac_seq_list<-lapply(atac_seq_list,unlist)
 atac_seq_list<-lapply(atac_seq_list, unique)
-
 #Keep only TF->TF interactions
 atac_seq_list<-atac_seq_list[which(names(atac_seq_list) %in% scenic_output_tfs)]
 for (x in names(atac_seq_list)){
   atac_seq_list[[x]]<-atac_seq_list[[x]][atac_seq_list[[x]] %in% scenic_output_tfs]
 }
-
 #Create ATAC-seq interactions
 atac_seq_interactions<-c()
 for (x in names(atac_seq_list)){
@@ -557,51 +587,15 @@ for (x in names(atac_seq_list)){
     atac_seq_interactions<-append(atac_seq_interactions,paste0(y,"->",x))
   }
 }
-
 #Add interactions to the interactions_summary table 
 interactions_summary["ataq-seq"]<-F
 interactions_summary[which(all_unique_interactions %in% atac_seq_interactions),"ataq-seq"]<-T
 interactions_summary[interactions_summary$`ataq-seq`==T,]
-
 #Dataframe for interactions that pass ataq_seq filter
 ataq_seq_summary<-interactions_summary[which(interactions_summary$`ataq-seq`==T),]
-
 #Dataframe for interactions that pass frequency and ataq_seq filter
 frequency_ataq_seq_summary<-interactions_summary[which(interactions_summary$`ataq-seq`==T & interactions_summary$frequency_filter==T),]
 frequency_ataq_seq_summary_nodes<-unique(c(unique(frequency_ataq_seq_summary$TF),unique(frequency_ataq_seq_summary$target)))
-```
-
-#Dorothea
-```{r}
-#Look up which interactions are confirmed by dorothea
-confirmed<-c()
-for (x in seq(nrow(frequency_summary))){
-  tf<-which(frequency_summary$TF[x]==dorothea_hs$tf)
-  target<-which(frequency_summary$target[x]==dorothea_hs$target)
-  pos<-tf %in% target
-  if(length(pos)!=0){
-    confirmed<-append(confirmed,tf[pos])
-  }
-}
-
-#Only keep the one with A confidence
-dorothea_keep<-dorothea_hs[confirmed,]
-dorothea_keep<-dorothea_keep[which(dorothea_keep$confidence=="A"),]
-
-#Mark those in frequency table
-keep<-c()
-for (x in seq(nrow(dorothea_keep))){
-  tf<-which(dorothea_keep$tf[x]==frequency_summary$TF)
-  target<-which(dorothea_keep$target[x]==frequency_summary$target)
-  pos<-tf %in% target
-  if(length(pos)!=0){
-    keep<-append(keep,tf[pos])
-  }
-}
-
-frequency_dorothea_summary<-frequency_summary[keep,]
-frequency_dorothea_summary["dorothea_filter"]<-F
-frequency_dorothea_summary[keep,"dorothea_filter"]<-T
 ```
 
 #Unite all confirmed interactions in one file
@@ -996,7 +990,10 @@ plot(g,
 legend(x=-1, y=-0.5, c("Exhausted","Memory", "Transition"), pch=21,
        col="#777777", pt.bg=colrs, pt.cex=2, cex=1.5, bty="n", ncol=1)
 dev.off()
+```
 
+#Create table for cytoscape
+```{r echo=FALSE, eval=FALSE}
 #Louvain_clustering
 louvain_clustering_res_0.5<-cluster_louvain(as.undirected(g),weight=frequency_summary_top100$NIS, resolution = 0.5)
 
@@ -1004,10 +1001,7 @@ louvain_clustering_res_0.5<-cluster_louvain(as.undirected(g),weight=frequency_su
 louvain_clustering_res_0.5_communities<-louvain_clustering_res_0.5$membership
 names(louvain_clustering_res_0.5_communities)<-louvain_clustering_res_0.5$names
 louvain_clustering_res_0.5_communities<-split(names(louvain_clustering_res_0.5_communities),louvain_clustering_res_0.5_communities)
-```
 
-#Create table for cytoscape
-```{r echo=FALSE, eval=FALSE}
 #Nodes table
 cytoscape_nodes<-vertices.df
 colnames(cytoscape_nodes)[1]<-"nodes"
@@ -1052,7 +1046,7 @@ cytoscape["target_group"]<-as.integer(cytoscape$target_group)
 write.table(cytoscape, file=paste0(analysis_directory,'/cytoscape/Input/cytoscape_05.tsv'), quote=FALSE, sep='\t', row.names = F)
 ```
 
-#Keep only nodes and interactions from paper and create cytoscape df for them
+#Keep only nodes and interactions from paper
 ```{r}
 #Fuse JUN and FOS nodes
 frequency_summary_top100["TF"]<-gsub("JUNB|JUND|JUN|FOSB|FOS","JUN-FOS",frequency_summary_top100$TF)
@@ -1174,7 +1168,10 @@ plot(g_paper_overlap,
 legend(x=-1, y=-0.5, c("Exhausted","Memory", "Transition"), pch=21,
        col="#777777", pt.bg=colrs, pt.cex=2, cex=1.5, bty="n", ncol=1)
 dev.off()
+```
 
+#Create cytoscape expotr file for cytoscape_paper_overlap
+```{r eval=FALSE, echo=FALSE}
 louvain_clustering_paper<-cluster_louvain(as.undirected(g_paper_overlap),weight=frequency_summary_top100_paper$NIS, resolution = 0.35)
 louvain_clustering_paper_communities<-louvain_clustering_paper$membership
 names(louvain_clustering_paper_communities)<-louvain_clustering_paper$names
@@ -1270,6 +1267,9 @@ names(paper_substitutions)[names(paper_substitutions) %in% bolouri_paper_interac
 
 #Create new cytoscape df to represent overlap between Bolouri paper and 82 RF TF network
 ```{r}
+#Import required data
+cytoscape_paper_overlap<-read.table(paste0(analysis_directory,"/cytoscape/Input/cytoscape_paper_overlap.tsv"), sep='\t', header=T)
+
 #Remove rows that dont contain TFs
 rownames(bolouri_paper_interactions_overlap)<-seq(nrow(bolouri_paper_interactions_overlap))
 bolouri_paper_interactions_overlap<-bolouri_paper_interactions_overlap[-c(36,37,38),]
@@ -1357,7 +1357,10 @@ plot(g_fusion,
 legend(x=-1, y=-0.5, c("Exhausted","Memory","Protein Complex","Receptors","Transition"), pch=21,
        col="#777777", pt.bg=colrs, pt.cex=2, cex=1.5, bty="n", ncol=1)
 dev.off()
+```
 
+#Create cytoscape export file for cytoscape_bolouri_RF_fusion
+```{r echo=FALSE, eval=FALSE}
 #Louvain clustering
 louvain_clustering_fusion<-cluster_louvain(as.undirected(g_fusion),weight=igraph_fusion$NIS, resolution =0.6)
 louvain_clustering_fusion_communities<-louvain_clustering_fusion$membership
@@ -1394,10 +1397,12 @@ write.table(bolouri_RF_fusion, file=paste0(analysis_directory,'/cytoscape/Input/
 
 #Bonesis Toy
 ```{r}
-bonesis_toy_nodes<-read.csv(paste0(analysis_directory,"/cytoscape/Output/cytoscape_bolouri_RF_fusion.tsv_Bonesis_toy_nodes.csv"),header=T)[,c(1,2,3)]
+#Import edges
 bonesis_toy_edges<-read.csv(paste0(analysis_directory,"/cytoscape/Output/cytoscape_bolouri_RF_fusion.tsv_Bonesis_toy_edges.csv"),header=T)[,3]
 bonesis_toy_tf<-sub(" .*", "", bonesis_toy_edges)
 bonesis_toy_target<-sub(".* ", "", bonesis_toy_edges)
+bonesis_toy_tf<-sub("CD3,", "CD3, TCR, CD8, CD28", bonesis_toy_tf)
+bonesis_toy_target<-sub("CD28", "CD3, TCR, CD8, CD28", bonesis_toy_target)
 
 bonesis_toy_interactions<-data.frame(matrix(nrow=length(bonesis_toy_edges),ncol=3))
 colnames(bonesis_toy_interactions)<-c("TF","target","Importance")
@@ -1405,15 +1410,23 @@ bonesis_toy_interactions["TF"]<-bonesis_toy_tf
 bonesis_toy_interactions["target"]<-bonesis_toy_target
 
 #Assign the importance
-importance<-c()
-for (x in seq(nrow(bonesis_toy_interactions))){
-  tf<-which(bonesis_toy_interactions$TF[x]==bolouri_paper_interactions$TF)
-  target<-which(bonesis_toy_interactions$target[x]==bolouri_paper_interactions$target)
-  pos<-tf %in% target
-  if(length(pos)!=0){
-    importance<-append(importance,tf[pos])
-  }
+bonesis_toy_interactions["Importance"]<-bolouri_paper_interactions[find_same_interactions_dfs(bolouri_paper_interactions,bonesis_toy_interactions),]$Interaction
+
+#Prepare the datdaframe for the Bonesis
+for (x in seq_along(bonesis_toy_interactions$Importance)){
+  if(bonesis_toy_interactions$Importance[x]=="inhibits"){
+    bonesis_toy_interactions[x,"Importance"]<-1*(-1)
+  }else{bonesis_toy_interactions[x,"Importance"]<-1}
 }
 
-bolouri_paper_interactions[importance,]
+bonesis_toy_python<-c()
+for (x in seq(nrow(bonesis_toy_interactions))){
+  bonesis_toy_python<-append(bonesis_toy_python,paste0("(",bonesis_toy_interactions[x,1],",",bonesis_toy_interactions[x,2],",dict(sign=",bonesis_toy_interactions[x,3],")),"))
+}
+
+write.table(bonesis_toy_python, file=paste0(analysis_directory,'/bonesis_toy_python.tsv'), quote=FALSE, sep='\t', row.names = F)
+
+#Import nodes
+bonesis_toy_nodes<-read.csv(paste0(analysis_directory,"/cytoscape/Output/cytoscape_bolouri_RF_fusion.tsv_Bonesis_toy_nodes.csv"),header=T)[,c(1,2,3)]
+
 ```
