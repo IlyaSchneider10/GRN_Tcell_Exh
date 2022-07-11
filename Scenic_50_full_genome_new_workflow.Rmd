@@ -7,6 +7,8 @@ output: html_document
   
 #Download packages
 ```{r}
+#install.packages("Seurat")
+
 #install.packages("RColorBrewer")
 
 #install.packages("LaplacesDemon")
@@ -90,6 +92,7 @@ library(LaplacesDemon)
 library(devtools)
 library(RColorBrewer)
 library(dorothea)
+library(Seurat)
 ``` 
 
 #Direcrories
@@ -154,7 +157,7 @@ write.table(input, file='scenic_input_full_genome.tsv', quote=FALSE, sep='\t', r
 input<-read.table(paste0("/media/ag-cherrmann/ischneider/GRNTcellExh/data/SCENIC50/Input","/scenic_input_full_genome.tsv"),sep='\t',header=T)
 
 #Bolouri paper nodes with appropriate nomenclature substitutions
-paper_nodes<-c("HNF1A","TNFSF9","TNFRSF9","IL12RB1","IL12RB2","IL21R","FCER1G","CD3","CD8","CD28","PIK3K","EZH2","PRC2","IL2R","RAS","MAPK1","JUN","FOS","BATF","AKT1", "AKT2", "AKT3","FOXO1","EGR2","EGR3","BACH2","ID3","ID2","NFKB1","MTOR","IRF4","TCF3","NFATC2","PPARGC1A","BCL6","PRDM1","NFATC1","CXCR5","TBX21","ZEB2","LAG3","PDCD1","HIF1A","KLRG1","PPARA","CTLA4","HAVCR2","BTLA","NR4A1","CD160","TIGIT","IL15RA","CD244","CD2B4","MYC","RUNX3","EOMES","FAS","FASLG","GZMA","GZMB","PRF1","IFNG")
+paper_nodes<-c("HNF1A","TNFSF9","TNFRSF9","IL12RB1","IL12RB2","IL21R","FCER1G","FCER1G","CD8","CD28","PIK3K","EZH2","PRC2","IL2R","RAS","MAPK1","JUN","FOS","BATF","AKT1", "AKT2", "AKT3","FOXO1","EGR2","EGR3","BACH2","ID3","ID2","NFKB1","MTOR","IRF4","TCF3","NFATC2","PPARGC1A","BCL6","PRDM1","NFATC1","CXCR5","TBX21","ZEB2","LAG3","PDCD1","HIF1A","KLRG1","PPARA","CTLA4","HAVCR2","BTLA","NR4A1","CD160","TIGIT","IL15RA","CD244","CD2B4","MYC","RUNX3","EOMES","FAS","FASLG","GZMA","GZMB","PRF1","IFNG")
 paper_substitutions<-list("HNF1A","TNFRSF9",c("IL12RB1","IL12RB2"),c("AKT1","AKT2","AKT3"),"TCF3","PRDM1","TBX21","PDCD1","PPARA","TNFSF9","FCER1G","MAPK1","PPARGC1A","IL15RA")
 names(paper_substitutions)<-c("TCF1","41BB","IL12R","AKT","E2A","BLIMP1","TBET","PD1","PPAR","CD137L","CD3","MAPK","PGC1A","IL15R")
 
@@ -842,12 +845,14 @@ aucell_scores_norm_cell_types_binarized<-as.data.frame(aucell_scores_norm_cell_t
 
 Heatmap(aucell_scores_norm_cell_types_binarized,cluster_rows = F,cluster_columns = F, column_labels = names(cell_types))
 
-pdf(paste0(analysis_directory,'/figures/aucell_scores_norm_top100_cell_type_binarized_percentage.pdf'),
+pdf(paste0(analysis_directory,'/figures/aucell_scores_norm_top100_cell_type_binarized_percentage_2.pdf'),
      width=15,
      height=30)
 
 Heatmap(aucell_scores_norm_cell_types_binarized,cluster_rows = F,cluster_columns = F, column_labels = names(cell_types))
 dev.off()
+
+write.csv(aucell_scores_norm_cell_types_binarized,paste0(analysis_directory,"/","aucell_scores_norm_cell_types_binarized.csv"), row.names = F)
 ```
 
 #Assign cell type to each TF
@@ -1398,7 +1403,7 @@ write.table(bolouri_RF_fusion, file=paste0(analysis_directory,'/cytoscape/Input/
 #Bonesis Toy
 ```{r}
 #Import edges
-bonesis_toy_edges<-read.csv(paste0(analysis_directory,"/cytoscape/Output/cytoscape_bolouri_RF_fusion.tsv_Bonesis_toy_edges.csv"),header=T)[,3]
+bonesis_toy_edges<-read.csv(paste0(analysis_directory,"/cytoscape/Output/new_bonesis_toy_edges.csv"),header=T)[,3]
 bonesis_toy_tf<-sub(" .*", "", bonesis_toy_edges)
 bonesis_toy_target<-sub(".* ", "", bonesis_toy_edges)
 bonesis_toy_tf<-sub("CD3,", "CD3, TCR, CD8, CD28", bonesis_toy_tf)
@@ -1408,6 +1413,9 @@ bonesis_toy_interactions<-data.frame(matrix(nrow=length(bonesis_toy_edges),ncol=
 colnames(bonesis_toy_interactions)<-c("TF","target","Importance")
 bonesis_toy_interactions["TF"]<-bonesis_toy_tf
 bonesis_toy_interactions["target"]<-bonesis_toy_target
+
+#Import nodes
+bonesis_toy_nodes<-read.csv(paste0(analysis_directory,"/cytoscape/Output/new_bonesis_toy_nodes.csv"),header=T)[,c(1,2,3)]
 
 #Assign the importance
 bonesis_toy_interactions["Importance"]<-bolouri_paper_interactions[find_same_interactions_dfs(bolouri_paper_interactions,bonesis_toy_interactions),]$Interaction
@@ -1426,7 +1434,252 @@ for (x in seq(nrow(bonesis_toy_interactions))){
 
 write.table(bonesis_toy_python, file=paste0(analysis_directory,'/bonesis_toy_python.tsv'), quote=FALSE, sep='\t', row.names = F)
 
-#Import nodes
-bonesis_toy_nodes<-read.csv(paste0(analysis_directory,"/cytoscape/Output/cytoscape_bolouri_RF_fusion.tsv_Bonesis_toy_nodes.csv"),header=T)[,c(1,2,3)]
-
 ```
+
+#Cell state dataframe for Bonesis: Bolouri
+```{r}
+#Get raw_input table
+raw_input<-read.csv("/media/ag-cherrmann/cramirez/tcd8ExscSeq/data/maike2020/nina_thimme_raw_counts.csv",header=T, row.names=1)
+
+#Read cell annotations
+setwd(data_directory)
+cell_annotations<-read.xlsx("nina_annotations.xlsx")
+
+#Remove RNA genes
+raw_input<-t(as.data.frame(raw_input))
+raw_input<-raw_input[,17:dim(raw_input)[2]]
+
+#Remove chromosme tags and duplicates
+genes<-gsub("\\_.*","",colnames(raw_input))
+remove<-which(duplicated(genes))
+genes<-genes[-remove] 
+raw_input<-raw_input[,-remove]
+colnames(raw_input)<-genes
+raw_input<-as.data.frame(raw_input)
+
+#Keep only cells with annotations
+raw_input<-raw_input[cell_annotations$CELLID,]
+
+#Dotplot based on new_bonesis_toy
+bonesis_toy_tfs<-bonesis_toy_nodes$name[2:length(bonesis_toy_nodes$name)]
+bonesis_toy_tfs<-bonesis_toy_tfs[-12]
+bonesis_toy_tfs<-bonesis_toy_tfs[-3]
+
+bonesis_toy_tfs<-gsub("TCF-1","HNF1A",bonesis_toy_tfs)
+bonesis_toy_tfs<-gsub("CD3, TCR, CD8, CD28","CD28",bonesis_toy_tfs)
+bonesis_toy_tfs<-c(bonesis_toy_tfs,"FCER1G")
+bonesis_toy_tfs<-gsub("PD-1","PDCD1",bonesis_toy_tfs)
+bonesis_toy_tfs<-gsub("CTLA-4","CTLA4",bonesis_toy_tfs)
+bonesis_toy_tfs<-gsub("IL12-R","IL12RB1",bonesis_toy_tfs)
+#bonesis_toy_tfs<-c(bonesis_toy_tfs,"JUN","FOS","IRF4","BATF")
+
+dot_plot_input<-as.data.frame(t(raw_input[,which(colnames(raw_input) %in% bonesis_toy_tfs)]))
+
+cell_code<-seq(length(cell_annotations$TYPE))
+dot_plot_code<-c()
+for(x in seq_along(cell_code)){
+  dot_plot_code[x]<-paste0(cell_annotations$TYPE[x],"_",cell_code[x])
+}
+colnames(dot_plot_input)<-dot_plot_code
+
+dot_plot_seurat <- CreateSeuratObject(counts = dot_plot_input, project = "cell_exh", min.cells = 0, min.features = 0)
+dot_plot_seurat<-NormalizeData(dot_plot_seurat, normalization.method = "LogNormalize", scale.factor = 10000)
+all.genes <- rownames(dot_plot_seurat)
+dot_plot_seurat <- ScaleData(dot_plot_seurat, features = all.genes)
+
+pdf(paste0(analysis_directory,'/figures/dot_plot_bonesis.pdf'),
+     width=15,
+     height=7)
+DotPlot(dot_plot_seurat, features = all.genes,cols = c("blue", "red"), dot.scale = 20) + RotatedAxis()+ ggplot2::scale_colour_gradient2(high = "#ff0000", mid = "#FFFFFF", low = "#0000FF")
+dev.off()
+
+#Define cell states
+cell_states_dot_plot<-data.frame(matrix(nrow=length(cell_types),ncol=nrow(dot_plot_input)))
+rownames(cell_states_dot_plot)<-names(cell_types)
+colnames(cell_states_dot_plot)<-rownames(dot_plot_input)
+cell_states_dot_plot$BACH2<-c(1,NA,NA)
+cell_states_dot_plot$BCL6<-NA
+cell_states_dot_plot$CD28<-c(1,0,NA)
+cell_states_dot_plot$CTLA4<-c(NA,0,1)
+#cell_states_dot_plot$EOMES<-c(0,NA,1)
+cell_states_dot_plot$EZH2<-c(NA,NA,1)
+cell_states_dot_plot$FCER1G<-NA
+cell_states_dot_plot$FOXO1<-c(1,0,NA)
+cell_states_dot_plot$HNF1A<-NA
+cell_states_dot_plot$ID3<-NA
+#cell_states_dot_plot$IL12RB1<-c(NA,NA,1)
+cell_states_dot_plot$NFATC1<-c(1,NA,NA)
+#cell_states_dot_plot$NFATC2<-c(0,NA,NA)
+cell_states_dot_plot$PDCD1<-c(NA,0,1)
+cell_states_dot_plot$PRDM1<-c(0,NA,1)
+```
+
+#Cell state dataframe for Bonesis: Bolouri + Scenic
+```{r}
+#Import edges
+bonesis_toy_edges<-read.csv(paste0(analysis_directory,"/cytoscape/Output/new_bonesis_toy+scenic_edges.csv"),header=T)[,c(3,5,6)]
+bonesis_toy_tf<-sub(" .*", "", bonesis_toy_edges$name)
+bonesis_toy_target<-sub(".* ", "", bonesis_toy_edges$name)
+bonesis_toy_tf<-sub("CD3,", "CD3, TCR, CD8, CD28", bonesis_toy_tf)
+bonesis_toy_target<-sub("CD28", "CD3, TCR, CD8, CD28", bonesis_toy_target)
+
+bonesis_toy_interactions<-data.frame(matrix(nrow=length(bonesis_toy_edges$name),ncol=3))
+colnames(bonesis_toy_interactions)<-c("TF","target","Importance")
+bonesis_toy_interactions["TF"]<-bonesis_toy_tf
+bonesis_toy_interactions["target"]<-bonesis_toy_target
+bonesis_toy_interactions["paper"]<-bonesis_toy_edges$paper
+bonesis_toy_interactions["RF"]<-bonesis_toy_edges$RF
+
+bonesis_toy_paper_interactions<-bonesis_toy_interactions[which(bonesis_toy_interactions$paper=="true"),]
+bonesis_toy_RF_interactions<-bonesis_toy_interactions[which(bonesis_toy_interactions$paper=="false"),]
+rownames(bonesis_toy_paper_interactions)<-seq(nrow(bonesis_toy_paper_interactions))
+rownames(bonesis_toy_RF_interactions)<-seq(nrow(bonesis_toy_RF_interactions))
+
+#Import nodes
+bonesis_toy_nodes<-read.csv(paste0(analysis_directory,"/cytoscape/Output/new_bonesis_toy+scenic_nodes.csv"),header=T)[,c(1,2,3)]
+
+#Assign the importance to paper interactions
+bonesis_toy_paper_interactions["Importance"]<-bolouri_paper_interactions[find_same_interactions_dfs(bolouri_paper_interactions,bonesis_toy_paper_interactions),]$Interaction
+
+
+#Create a Seurat object ot create scatter plots
+pos<-which(bonesis_toy_RF_interactions$target=="JUN-FOS")
+bonesis_toy_RF_interactions[pos,"target"]<-"JUN"
+rownames(bonesis_toy_RF_interactions)<-seq(nrow(bonesis_toy_RF_interactions))
+bonesis_toy_RF_interactions[1,"target"]<-"FOS"
+
+bonesis_toy_RF_tfs<-unique(c(bonesis_toy_RF_interactions$TF,bonesis_toy_RF_interactions$target))
+cor_importance<-as.data.frame(t(raw_input))
+
+cell_code<-seq(length(cell_annotations$TYPE))
+corr_code<-c()
+for(x in seq_along(cell_code)){
+  corr_code[x]<-paste0(cell_annotations$TYPE[x],"_",cell_code[x])
+}
+colnames(cor_importance)<-corr_code
+
+cor_importance_seurat <- CreateSeuratObject(counts = cor_importance, project = "cell_exh", min.cells = 0, min.features = 0)
+cor_importance_seurat<-NormalizeData(cor_importance_seurat, normalization.method = "LogNormalize", scale.factor = 10000)
+all.genes <- rownames(cor_importance_seurat)
+cor_importance_seurat <- ScaleData(cor_importance_seurat, features = all.genes)
+
+cor_importance_plots<-list()
+for (x in seq(nrow(bonesis_toy_RF_interactions))){
+  cor_importance_plots[[x]]<-FeatureScatter(object = cor_importance_seurat, feature1 = bonesis_toy_RF_interactions$TF[x], feature2 = bonesis_toy_RF_interactions$target[x])
+}
+
+cor_importance_plots
+
+FeatureScatter(object = cor_importance_seurat, feature1 = bonesis_toy_RF_interactions$TF[x], feature2 = bonesis_toy_RF_interactions$target[x])
+
+
+#Assign importance to RF interactions by conducting a pearson correlation of expression data
+
+for (x in seq(nrow(bonesis_toy_RF_interactions))){
+  tf<-input[,which(colnames(input)==bonesis_toy_RF_interactions$TF[x])]
+  target<-input[,which(colnames(input)==bonesis_toy_RF_interactions$target[x])]
+  bonesis_toy_RF_interactions[x,"Importance"]<-cor(scale(tf),scale(target),method="pearson")
+}
+
+cor(input[,which(colnames(input)==bonesis_toy_RF_interactions$target[19])],input[,which(colnames(input)==bonesis_toy_RF_interactions$TF[19])],method="pearson")
+
+
+
+#Prepare the dataframe for the Bonesis
+for (x in seq_along(bonesis_toy_interactions$Importance)){
+  if(bonesis_toy_interactions$Importance[x]=="inhibits"){
+    bonesis_toy_interactions[x,"Importance"]<-1*(-1)
+  }else{bonesis_toy_interactions[x,"Importance"]<-1}
+}
+
+bonesis_toy_python<-c()
+for (x in seq(nrow(bonesis_toy_interactions))){
+  bonesis_toy_python<-append(bonesis_toy_python,paste0("(",bonesis_toy_interactions[x,1],",",bonesis_toy_interactions[x,2],",dict(sign=",bonesis_toy_interactions[x,3],")),"))
+}
+
+write.table(bonesis_toy_python, file=paste0(analysis_directory,'/bonesis_toy+scenic_python.tsv'), quote=FALSE, sep='\t', row.names = F)
+
+
+#Dotplot based on new_bonesis_toy
+bonesis_toy_tfs<-bonesis_toy_nodes$name[2:length(bonesis_toy_nodes$name)]
+bonesis_toy_tfs<-bonesis_toy_tfs[-12]
+bonesis_toy_tfs<-bonesis_toy_tfs[-3]
+
+bonesis_toy_tfs<-gsub("TCF-1","HNF1A",bonesis_toy_tfs)
+bonesis_toy_tfs<-gsub("CD3, TCR, CD8, CD28","CD28",bonesis_toy_tfs)
+bonesis_toy_tfs<-c(bonesis_toy_tfs,"FCER1G")
+bonesis_toy_tfs<-gsub("PD-1","PDCD1",bonesis_toy_tfs)
+bonesis_toy_tfs<-gsub("CTLA-4","CTLA4",bonesis_toy_tfs)
+bonesis_toy_tfs<-gsub("IL12-R","IL12RB1",bonesis_toy_tfs)
+#bonesis_toy_tfs<-c(bonesis_toy_tfs,"JUN","FOS","IRF4","BATF")
+
+dot_plot_input<-as.data.frame(t(raw_input[,which(colnames(raw_input) %in% bonesis_toy_tfs)]))
+
+cell_code<-seq(length(cell_annotations$TYPE))
+dot_plot_code<-c()
+for(x in seq_along(cell_code)){
+  dot_plot_code[x]<-paste0(cell_annotations$TYPE[x],"_",cell_code[x])
+}
+colnames(dot_plot_input)<-dot_plot_code
+
+dot_plot_seurat <- CreateSeuratObject(counts = dot_plot_input, project = "cell_exh", min.cells = 0, min.features = 0)
+dot_plot_seurat<-NormalizeData(dot_plot_seurat, normalization.method = "LogNormalize", scale.factor = 10000)
+all.genes <- rownames(dot_plot_seurat)
+dot_plot_seurat <- ScaleData(dot_plot_seurat, features = all.genes)
+
+DotPlot(dot_plot_seurat, features = all.genes,cols = c("blue", "red"), dot.scale = 10) + RotatedAxis()+ ggplot2::scale_colour_gradient2(high = "#ff0000", mid = "#FFFFFF", low = "#0000FF")
+
+#Define cell states
+cell_states_dot_plot<-data.frame(matrix(nrow=length(cell_types),ncol=nrow(dot_plot_input)))
+rownames(cell_states_dot_plot)<-names(cell_types)
+colnames(cell_states_dot_plot)<-rownames(dot_plot_input)
+cell_states_dot_plot$BACH2<-c(1,NA,NA)
+cell_states_dot_plot$BCL6<-NA
+cell_states_dot_plot$CD28<-c(1,0,NA)
+cell_states_dot_plot$CTLA4<-c(NA,0,1)
+#cell_states_dot_plot$EOMES<-c(0,NA,1)
+cell_states_dot_plot$EZH2<-c(NA,NA,1)
+cell_states_dot_plot$FCER1G<-NA
+cell_states_dot_plot$FOXO1<-c(1,0,NA)
+cell_states_dot_plot$HNF1A<-NA
+cell_states_dot_plot$ID3<-NA
+#cell_states_dot_plot$IL12RB1<-c(NA,NA,1)
+cell_states_dot_plot$NFATC1<-c(1,NA,NA)
+#cell_states_dot_plot$NFATC2<-c(0,NA,NA)
+cell_states_dot_plot$PDCD1<-c(NA,0,1)
+cell_states_dot_plot$PRDM1<-c(0,NA,1)
+```
+
+#Alternative way
+```{r}
+#Look for importance values of RF interations_ encode and p-p database
+interactions_sign_encode<-read.delim("/media/ag-cherrmann/ischneider/GRNTcellExh/data/interactions_sign/encode.txt")
+colnames(interactions_sign_encode)[1]<-"targets"
+
+bonesis_toy_RF_interactions_list<-split(bonesis_toy_RF_interactions$target,bonesis_toy_RF_interactions$TF)
+sub<-bonesis_toy_RF_interactions_list[["EZH2"]]
+sub<-sub[-3]
+sub<-c(sub,"JUN","FOS")
+bonesis_toy_RF_interactions_list[["EZH2"]]<-sub
+
+bonesis_toy_RF_interactions_list_encode<-bonesis_toy_RF_interactions_list[which(names(bonesis_toy_RF_interactions_list) %in% colnames(interactions_sign_encode))]
+
+bonesis_toy_RF_interactions_importance_encode<-bonesis_toy_RF_interactions_list_encode
+for (tf in names (bonesis_toy_RF_interactions_list_encode)){
+  bonesis_toy_RF_interactions_importance_encode[[tf]]<-interactions_sign_encode[which(interactions_sign$targets %in% bonesis_toy_RF_interactions_list_encode[[tf]]),tf]
+}
+
+interactions_sign_pp<-read.delim("/media/ag-cherrmann/ischneider/GRNTcellExh/data/interactions_sign/p-p_pathways.txt")
+interactions_sign_pp<-interactions_sign_pp[3:nrow(interactions_sign_pp),]
+colnames(interactions_sign_pp)[1]<-"targets"
+
+unique(bonesis_toy_RF_interactions$target) %in% interactions_sign_pp$targets
+
+names(bonesis_toy_RF_interactions_list) %in% colnames(interactions_sign_pp)
+
+bonesis_toy_RF_interactions_importance_pp<-bonesis_toy_RF_interactions_list
+for (tf in names (bonesis_toy_RF_interactions_list)){
+  bonesis_toy_RF_interactions_importance_pp[[tf]]<-interactions_sign_pp[which(interactions_sign$targets %in% bonesis_toy_RF_interactions_list[[tf]]),tf]
+}
+```
+
