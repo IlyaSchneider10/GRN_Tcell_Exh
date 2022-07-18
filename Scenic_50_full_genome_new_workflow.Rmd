@@ -7,6 +7,10 @@ output: html_document
   
 #Download packages
 ```{r}
+#install.packages("BoolNet")
+
+#install.packages("ggpubr")
+
 #install.packages("Seurat")
 
 #install.packages("RColorBrewer")
@@ -93,6 +97,8 @@ library(devtools)
 library(RColorBrewer)
 library(dorothea)
 library(Seurat)
+library(ggpubr)
+library(BoolNet)
 ``` 
 
 #Direcrories
@@ -1471,9 +1477,8 @@ bonesis_toy_tfs<-c(bonesis_toy_tfs,"FCER1G")
 bonesis_toy_tfs<-gsub("PD-1","PDCD1",bonesis_toy_tfs)
 bonesis_toy_tfs<-gsub("CTLA-4","CTLA4",bonesis_toy_tfs)
 bonesis_toy_tfs<-gsub("IL12-R","IL12RB1",bonesis_toy_tfs)
-#bonesis_toy_tfs<-c(bonesis_toy_tfs,"JUN","FOS","IRF4","BATF")
 
-dot_plot_input<-as.data.frame(t(raw_input[,which(colnames(raw_input) %in% bonesis_toy_tfs)]))
+dot_plot_input<-as.data.frame(t(raw_input))
 
 cell_code<-seq(length(cell_annotations$TYPE))
 dot_plot_code<-c()
@@ -1490,7 +1495,7 @@ dot_plot_seurat <- ScaleData(dot_plot_seurat, features = all.genes)
 pdf(paste0(analysis_directory,'/figures/dot_plot_bonesis.pdf'),
      width=15,
      height=7)
-DotPlot(dot_plot_seurat, features = all.genes,cols = c("blue", "red"), dot.scale = 20) + RotatedAxis()+ ggplot2::scale_colour_gradient2(high = "#ff0000", mid = "#FFFFFF", low = "#0000FF")
+DotPlot(dot_plot_seurat, features = bonesis_toy_tfs,cols = c("blue", "red"), dot.scale = 20) + RotatedAxis()+ ggplot2::scale_colour_gradient2(high = "#ff0000", mid = "#FFFFFF", low = "#0000FF")
 dev.off()
 
 #Define cell states
@@ -1538,72 +1543,44 @@ rownames(bonesis_toy_RF_interactions)<-seq(nrow(bonesis_toy_RF_interactions))
 #Import nodes
 bonesis_toy_nodes<-read.csv(paste0(analysis_directory,"/cytoscape/Output/new_bonesis_toy+scenic_nodes.csv"),header=T)[,c(1,2,3)]
 
-#Assign the importance to paper interactions
+#Assign the importance
 bonesis_toy_paper_interactions["Importance"]<-bolouri_paper_interactions[find_same_interactions_dfs(bolouri_paper_interactions,bonesis_toy_paper_interactions),]$Interaction
 
-
-#Create a Seurat object ot create scatter plots
-pos<-which(bonesis_toy_RF_interactions$target=="JUN-FOS")
-bonesis_toy_RF_interactions[pos,"target"]<-"JUN"
-rownames(bonesis_toy_RF_interactions)<-seq(nrow(bonesis_toy_RF_interactions))
-bonesis_toy_RF_interactions[1,"target"]<-"FOS"
-
-bonesis_toy_RF_tfs<-unique(c(bonesis_toy_RF_interactions$TF,bonesis_toy_RF_interactions$target))
-cor_importance<-as.data.frame(t(raw_input))
-
-cell_code<-seq(length(cell_annotations$TYPE))
-corr_code<-c()
-for(x in seq_along(cell_code)){
-  corr_code[x]<-paste0(cell_annotations$TYPE[x],"_",cell_code[x])
-}
-colnames(cor_importance)<-corr_code
-
-cor_importance_seurat <- CreateSeuratObject(counts = cor_importance, project = "cell_exh", min.cells = 0, min.features = 0)
-cor_importance_seurat<-NormalizeData(cor_importance_seurat, normalization.method = "LogNormalize", scale.factor = 10000)
-all.genes <- rownames(cor_importance_seurat)
-cor_importance_seurat <- ScaleData(cor_importance_seurat, features = all.genes)
-
-cor_importance_plots<-list()
-for (x in seq(nrow(bonesis_toy_RF_interactions))){
-  cor_importance_plots[[x]]<-FeatureScatter(object = cor_importance_seurat, feature1 = bonesis_toy_RF_interactions$TF[x], feature2 = bonesis_toy_RF_interactions$target[x])
+for (x in seq_along(bonesis_toy_paper_interactions$Importance)){
+  if(bonesis_toy_paper_interactions$Importance[x]=="inhibits"){
+    bonesis_toy_paper_interactions[x,"Importance"]<-1*(-1)
+  }else{bonesis_toy_paper_interactions[x,"Importance"]<-1}
 }
 
-cor_importance_plots
+bonesis_toy_RF_interactions["Importance"]<-0
 
-FeatureScatter(object = cor_importance_seurat, feature1 = bonesis_toy_RF_interactions$TF[x], feature2 = bonesis_toy_RF_interactions$target[x])
+bonesis_toy_interactions<-rbind(bonesis_toy_paper_interactions,bonesis_toy_RF_interactions)
 
+bonesis_toy_python_2<-c()
+for (x in seq(nrow(bonesis_toy_interactions))){
+  bonesis_toy_python_2<-append(bonesis_toy_python_2,paste0("(",bonesis_toy_interactions[x,1],",",bonesis_toy_interactions[x,2],",dict(sign=",bonesis_toy_interactions[x,3],")),"))
+}
 
 #Assign importance to RF interactions by conducting a pearson correlation of expression data
 
 for (x in seq(nrow(bonesis_toy_RF_interactions))){
   tf<-input[,which(colnames(input)==bonesis_toy_RF_interactions$TF[x])]
   target<-input[,which(colnames(input)==bonesis_toy_RF_interactions$target[x])]
-  bonesis_toy_RF_interactions[x,"Importance"]<-cor(scale(tf),scale(target),method="pearson")
+  bonesis_toy_RF_interactions[x,"Importance"]<-cor(tf,target,method="pearson")
 }
-
-cor(input[,which(colnames(input)==bonesis_toy_RF_interactions$target[19])],input[,which(colnames(input)==bonesis_toy_RF_interactions$TF[19])],method="pearson")
-
-
-
-#Prepare the dataframe for the Bonesis
-for (x in seq_along(bonesis_toy_interactions$Importance)){
-  if(bonesis_toy_interactions$Importance[x]=="inhibits"){
-    bonesis_toy_interactions[x,"Importance"]<-1*(-1)
-  }else{bonesis_toy_interactions[x,"Importance"]<-1}
+for (x in seq(nrow(bonesis_toy_RF_interactions))){
+  tf<-input[,which(colnames(input)==bonesis_toy_RF_interactions$TF[x])]
+  target<-input[,which(colnames(input)==bonesis_toy_RF_interactions$target[x])]
+  bonesis_toy_RF_interactions[x,"spearman"]<-cor(tf,target,method="spearman")
 }
-
-bonesis_toy_python<-c()
-for (x in seq(nrow(bonesis_toy_interactions))){
-  bonesis_toy_python<-append(bonesis_toy_python,paste0("(",bonesis_toy_interactions[x,1],",",bonesis_toy_interactions[x,2],",dict(sign=",bonesis_toy_interactions[x,3],")),"))
+for (x in seq(nrow(bonesis_toy_RF_interactions))){
+  tf<-input[,which(colnames(input)==bonesis_toy_RF_interactions$TF[x])]
+  target<-input[,which(colnames(input)==bonesis_toy_RF_interactions$target[x])]
+  bonesis_toy_RF_interactions[x,"kendall"]<-cor(tf,target,method="kendall")
 }
-
-write.table(bonesis_toy_python, file=paste0(analysis_directory,'/bonesis_toy+scenic_python.tsv'), quote=FALSE, sep='\t', row.names = F)
-
 
 #Dotplot based on new_bonesis_toy
 bonesis_toy_tfs<-bonesis_toy_nodes$name[2:length(bonesis_toy_nodes$name)]
-bonesis_toy_tfs<-bonesis_toy_tfs[-12]
-bonesis_toy_tfs<-bonesis_toy_tfs[-3]
 
 bonesis_toy_tfs<-gsub("TCF-1","HNF1A",bonesis_toy_tfs)
 bonesis_toy_tfs<-gsub("CD3, TCR, CD8, CD28","CD28",bonesis_toy_tfs)
@@ -1611,9 +1588,9 @@ bonesis_toy_tfs<-c(bonesis_toy_tfs,"FCER1G")
 bonesis_toy_tfs<-gsub("PD-1","PDCD1",bonesis_toy_tfs)
 bonesis_toy_tfs<-gsub("CTLA-4","CTLA4",bonesis_toy_tfs)
 bonesis_toy_tfs<-gsub("IL12-R","IL12RB1",bonesis_toy_tfs)
-#bonesis_toy_tfs<-c(bonesis_toy_tfs,"JUN","FOS","IRF4","BATF")
+bonesis_toy_tfs<-c(bonesis_toy_tfs,"JUN","FOS")
 
-dot_plot_input<-as.data.frame(t(raw_input[,which(colnames(raw_input) %in% bonesis_toy_tfs)]))
+dot_plot_input<-as.data.frame(t(raw_input))
 
 cell_code<-seq(length(cell_annotations$TYPE))
 dot_plot_code<-c()
@@ -1622,12 +1599,12 @@ for(x in seq_along(cell_code)){
 }
 colnames(dot_plot_input)<-dot_plot_code
 
-dot_plot_seurat <- CreateSeuratObject(counts = dot_plot_input, project = "cell_exh", min.cells = 0, min.features = 0)
+dot_plot_seurat <- CreateSeuratObject(counts = dot_plot_input, project = "cell_exh", min.cells = 0, min.features = 10)
 dot_plot_seurat<-NormalizeData(dot_plot_seurat, normalization.method = "LogNormalize", scale.factor = 10000)
 all.genes <- rownames(dot_plot_seurat)
 dot_plot_seurat <- ScaleData(dot_plot_seurat, features = all.genes)
 
-DotPlot(dot_plot_seurat, features = all.genes,cols = c("blue", "red"), dot.scale = 10) + RotatedAxis()+ ggplot2::scale_colour_gradient2(high = "#ff0000", mid = "#FFFFFF", low = "#0000FF")
+DotPlot(dot_plot_seurat, features =c(bonesis_toy_tfs, "ETV7"),cols = c("blue", "red"), dot.scale = 10) + RotatedAxis()+ ggplot2::scale_colour_gradient2(high = "#ff0000", mid = "#FFFFFF", low = "#0000FF")
 
 #Define cell states
 cell_states_dot_plot<-data.frame(matrix(nrow=length(cell_types),ncol=nrow(dot_plot_input)))
@@ -1648,6 +1625,24 @@ cell_states_dot_plot$NFATC1<-c(1,NA,NA)
 #cell_states_dot_plot$NFATC2<-c(0,NA,NA)
 cell_states_dot_plot$PDCD1<-c(NA,0,1)
 cell_states_dot_plot$PRDM1<-c(0,NA,1)
+```
+
+```{r}
+dot_plot_input<-as.data.frame(t(raw_input))
+
+cell_code<-seq(length(cell_annotations$TYPE))
+dot_plot_code<-c()
+for(x in seq_along(cell_code)){
+  dot_plot_code[x]<-paste0(cell_annotations$TYPE[x],"_",cell_code[x])
+}
+colnames(dot_plot_input)<-dot_plot_code
+
+dot_plot_seurat <- CreateSeuratObject(counts = dot_plot_input, project = "cell_exh", min.cells = 0, min.features = 10)
+dot_plot_seurat<-NormalizeData(dot_plot_seurat, normalization.method = "LogNormalize", scale.factor = 10000)
+all.genes <- rownames(dot_plot_seurat)
+dot_plot_seurat <- ScaleData(dot_plot_seurat, features = all.genes)
+
+DotPlot(dot_plot_seurat, features =c("EZH2","CD28","CTLA4","IL2-R","NFATC1","PDCD1","BTLA","NFKB1","PRDM1","BACH2","FOXO1","ID3","BCL6","HNF1A","IL12RB1","NFATC2","JUN","FOS","TBX21","ZEB2","STAT1"),cols = c("blue", "red"), dot.scale = 10) + RotatedAxis()+ ggplot2::scale_colour_gradient2(high = "#ff0000", mid = "#FFFFFF", low = "#0000FF")
 ```
 
 #Alternative way
@@ -1682,4 +1677,161 @@ for (tf in names (bonesis_toy_RF_interactions_list)){
   bonesis_toy_RF_interactions_importance_pp[[tf]]<-interactions_sign_pp[which(interactions_sign$targets %in% bonesis_toy_RF_interactions_list[[tf]]),tf]
 }
 ```
+
+
+#Analyzing solutions
+```{r}
+#Create solutions core
+solutions_core<-bonesis_rules_list[[2]]
+solutions_core<-solutions_core[which(solutions_core$BACH2=="!EZH2" & solutions_core$BTLA=="NFKB1" & solutions_core$EZH2!=1 & solutions_core$IL2.R=="!ID3"),]
+
+#Look how the solution distributions for other nodes has changed
+not_core<-c("CD3..TCR..CD8..CD28", "NFATC1", "TCF.1", "CTLA.4","FOXO1","ID3","PD.1","PRDM1")
+solutions_not_core_stats<-vector("list", length(not_core))
+names(solutions_not_core_stats)<-not_core
+
+for (y in not_core){
+  solutions_not_core_stats[[y]]<-table(solutions_core[,y])/nrow(solutions_core)
+}
+
+#Remove fixed solutions from CTLA-4 and PRDM1
+solutions_core_curated_1<-solutions_core[which(solutions_core$CTLA.4!=1 & solutions_core$PRDM1!=1),]
+
+#Look how the solution distributions for other nodes has changed
+not_filtered<-c("CD3..TCR..CD8..CD28", "NFATC1", "TCF.1", "FOXO1","ID3","PD.1")
+solutions_not_filtered_stats<-vector("list", length(not_filtered))
+names(solutions_not_filtered_stats)<-not_filtered
+
+for (y in not_filtered){
+  solutions_not_filtered_stats[[y]]<-table(solutions_core_curated_1[,y])/nrow(solutions_core_curated_1)
+}
+
+
+#Remove fixed solutions from PD-1
+solutions_core_curated_2<-solutions_core_curated_1[which(solutions_core_curated_1$PD.1!=1),]
+
+#Look how the solution distributions for other nodes has changed
+not_filtered_2<-c("CD3..TCR..CD8..CD28", "NFATC1", "TCF.1", "FOXO1","ID3")
+solutions_not_filtered_stats_2<-vector("list", length(not_filtered_2))
+names(solutions_not_filtered_stats_2)<-not_filtered_2
+
+for (y in not_filtered_2){
+  solutions_not_filtered_stats_2[[y]]<-table(solutions_core_curated_2[,y])/nrow(solutions_core_curated_2)
+}
+
+#Fixate FOXO1 and ID3
+solutions_core_curated_3<-solutions_core_curated_2[which(solutions_core_curated_2$FOXO1==1),]
+
+#Look how the solution distributions for other nodes has changed
+solutions_not_filtered_stats_3<-vector("list", ncol(solutions_core_curated_3))
+names(solutions_not_filtered_stats_3)<-colnames(solutions_core_curated_3)
+
+for (y in colnames(solutions_core_curated_3)){
+  solutions_not_filtered_stats_3[[y]]<-table(solutions_core_curated_3[,y])/nrow(solutions_core_curated_3)
+}
+```
+
+#Analyze Bonesis output rules
+```{r}
+#Open csv files
+bonesis_output_top<-read.csv(paste0(analysis_directory,"/bonesis_output/bonesis_toy_rules_top.csv"),header=T, row.names=1)
+
+bonesis_output_bottom<-read.csv(paste0(analysis_directory,"/bonesis_output/bonesis_toy_rules_bottom.csv"),header=T, row.names=1)
+out<-c("EZH2","IL12.R","NFATC1","NFATC1.JUN.FOS.IRF4.BATF","NFATC2","TBET.ZEB2")
+bonesis_output_bottom<-bonesis_output_bottom[,which(!colnames(bonesis_output_bottom )%in%out)]
+
+#Get the different solution options for each node
+bonesis_output_top_stats<-vector("list",ncol(bonesis_output_top))
+names(bonesis_output_top_stats)<-colnames(bonesis_output_top)
+
+for (x in names(bonesis_output_top_stats)){
+    bonesis_output_top_stats[[x]]<-sort(table(bonesis_output_top[,x])/nrow(bonesis_output_top),decreasing = T)
+}
+
+bonesis_output_bottom_stats<-vector("list",ncol(bonesis_output_bottom))
+names(bonesis_output_bottom_stats)<-colnames(bonesis_output_bottom)
+
+for (x in names(bonesis_output_bottom_stats)){
+    bonesis_output_bottom_stats[[x]]<-sort(table(bonesis_output_bottom[,x])/nrow(bonesis_output_bottom),decreasing = T)
+}
+
+bonesis_output_bottom_stats$TCF.1
+
+bonesis_output_top_stats$NFATC1.JUN.FOS.IRF4.BATF
+
+grep("PRDM1",names(bonesis_output_bottom_stats$BCL6))
+grep("TCF-1",names(bonesis_output_bottom_stats$BCL6))
+
+```
+
+#Bonesis_final_3
+```{r}
+#Open csv files
+bonesis_output<-read.csv(paste0(analysis_directory,"/bonesis_output/bonesis_toy_final_3_rules.csv"),header=T, row.names=1)
+
+#Get the different solution options for each node
+bonesis_output_stats<-vector("list",ncol(bonesis_output))
+names(bonesis_output_stats)<-colnames(bonesis_output)
+
+for (x in names(bonesis_output_stats)){
+    bonesis_output_stats[[x]]<-sort(table(bonesis_output[,x])/nrow(bonesis_output),decreasing = T)
+}
+
+#First curation
+bonesis_output_curated_1<-bonesis_output[which(bonesis_output$NFATC2=="STAT1" & bonesis_output$PD.1!=1 & bonesis_output$STAT1!=1 & bonesis_output$CTLA.4!=1 & bonesis_output$CD3..TCR..CD8..CD28!=1),]
+
+#Get the different solution options for each node
+bonesis_output_stats_curated_1<-vector("list",ncol(bonesis_output_curated_1))
+names(bonesis_output_stats_curated_1)<-colnames(bonesis_output_curated_1)
+
+for (x in names(bonesis_output_stats_curated_1)){
+    bonesis_output_stats_curated_1[[x]]<-sort(table(bonesis_output_curated_1[,x])/nrow(bonesis_output_curated_1),decreasing = T)
+}
+
+#Second curation
+bonesis_output_curated_2<-bonesis_output_curated_1[which(bonesis_output_curated_1$BTLA!=0 & bonesis_output_curated_1$EZH2!=1 & bonesis_output_curated_1$JUN.FOS!=0 & bonesis_output_curated_1$NFATC1.JUN.FOS.IRF4.BATF!=1 & bonesis_output_curated_1$NFKB1!=0),]
+bonesis_output_curated_2<-bonesis_output_curated_2[which(bonesis_output_curated_2$NFATC1.JUN.FOS.IRF4.BATF!=0),]
+
+#Save row numbers for attractor analysis
+rows<-as.numeric(rownames(bonesis_output_curated_2))
+
+#Get the different solution options for each node
+bonesis_output_stats_curated_2<-vector("list",ncol(bonesis_output_curated_2))
+names(bonesis_output_stats_curated_2)<-colnames(bonesis_output_curated_2)
+
+for (x in names(bonesis_output_stats_curated_2)){
+    bonesis_output_stats_curated_2[[x]]<-sort(table(bonesis_output_curated_2[,x])/nrow(bonesis_output_curated_2),decreasing = T)
+}
+
+#Analyze attractors
+bonesis_attractors<-vector("list", nrow(bonesis_output_curated_2))
+names(bonesis_attractors)<-as.character(seq(0,nrow(bonesis_output_curated_2)-1))
+for(x in seq(0,nrow(bonesis_output_curated_2)-1)){
+  bonesis_attractors[[as.character(x)]]<-as.character(read.csv(paste0("/media/ag-cherrmann/ischneider/GRNTcellExh/analysis/bonesis_output/attractors_3/",as.character(x),".csv"),header=T, row.names=1))
+}
+
+bonesis_attractors<-as.data.frame(t(as.data.frame(bonesis_attractors)))
+colnames(bonesis_attractors)<-c("BTLA","CD3, TCR, CD8, CD28","CTLA-4","EZH2","JUN-FOS","NFATC1","NFATC1:JUN-FOS:IRF4:BATF","NFATC2","NFKB1","PD-1","STAT1")
+rownames(bonesis_attractors)<-seq(nrow(bonesis_attractors))
+
+bonesis_attractors_stats<-vector("list",ncol(bonesis_attractors))
+names(bonesis_attractors_stats)<-colnames(bonesis_attractors)
+
+for (x in names(bonesis_attractors_stats)){
+    bonesis_attractors_stats[[x]]<-sort(table(bonesis_attractors[,x])/nrow(bonesis_attractors),decreasing = T)
+}
+
+#Prepare for Boolnet
+boolnet_input<-as.data.frame(t(bonesis_output_curated_2))
+
+for (x in seq(ncol(boolnet_input))){
+  write.table(boolnet_input[,x], file=paste0("/media/ag-cherrmann/ischneider/GRNTcellExh/analysis/boolnet_input/",as.character(x),".tsv"), quote=FALSE, sep='\t', row.names = T)
+}
+```
+
+#Boolnet
+```{r}
+loadNetwork("/media/ag-cherrmann/ischneider/GRNTcellExh/analysis/boolnet_input/1.tsv")
+```
+
 
