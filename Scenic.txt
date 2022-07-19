@@ -1,0 +1,47 @@
+for x in {1..50}
+do
+
+  cd /media/ag-cherrmann/ischneider/GRNTcellExh/data/SCENIC50/Output_full_genome_new_workflow
+  mkdir run_$x
+  
+  ## Run scenic pipeline
+  d="/media/ag-cherrmann/ischneider/GRNTcellExh/data/SCENIC50/Output_full_genome_new_workflow/run_"
+  s="/"
+  
+  output_dir="$d$x$s"
+  data_dir='/media/ag-cherrmann/ischneider/GRNTcellExh/data/SCENIC50/Input/'
+  project_dir='/media/ag-cherrmann/ischneider/GRNTcellExh/data/SCENIC50/'
+  mtx='scenic_input_full_genome'
+  
+  ## Run grn model
+  singularity exec \
+  	-B $project_dir:$project_dir $project_dir'aertslab-pyscenic-0.10.0.sif' \
+  	pyscenic grn --num_workers 10 \
+  	-o $output_dir$'adj.tsv' \
+  	--method grnboost2 \
+  	$data_dir$mtx'.tsv' \
+  	$data_dir'hs_hgnc_curated_tfs.txt'
+  	
+  ## Prunning the inferred grn
+  singularity exec \
+          -B $project_dir:$project_dir $project_dir'aertslab-pyscenic-0.10.0.sif' \
+  	pyscenic ctx \
+  	$output_dir$'adj.tsv' \
+  	$data_dir'hg38__refseq-r80__10kb_up_and_down_tss.mc9nr.feather' \
+  	--annotations_fname $data_dir'motifs-v9-nr.hgnc-m0.001-o0.0.tbl' \
+  	--expression_mtx_fname $data_dir$mtx'.tsv' \
+  	--mode "dask_multiprocessing" \
+  	--output $output_dir$'reg.csv' \
+  	--num_workers 20 \
+  	--mask_dropouts
+  	
+  ## Ranking cells
+  singularity exec \
+           -B $project_dir:$project_dir $project_dir'aertslab-pyscenic-0.10.0.sif' \
+  	 pyscenic aucell \
+  	 $data_dir$mtx'.tsv' \
+  	 $output_dir$'reg.csv' \
+  	 --output $output_dir$'aucell.csv' \
+  	 --num_workers 20
+
+done
