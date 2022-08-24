@@ -1,5 +1,5 @@
 # GRN_Tcell_Exh
-Dynamic modelling of gene regulatory networks describing CD8+ T-cell exhaustion
+Bachelor Thesis project 2022: Dynamic modelling of gene regulatory networks describing CD8+ T-cell exhaustion
 
 **Files description**
 - *Scenic.txt* is the pipeline that was used to iterate 50 *pySCENIC* runs in bash. 
